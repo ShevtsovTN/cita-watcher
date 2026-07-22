@@ -1,0 +1,173 @@
+# cita-watcher-docker/docker-compose.yml
+#
+# Расположение: ./cita-watcher-docker/docker-compose.yml — все относительные пути ниже считаются
+# от этой директории. Запускать так: docker compose -f cita-watcher-docker/docker-compose.yml up -d
+# (или создать симлинк/alias, если удобнее запускать из корня репозитория).
+#
+# Layout монорепозитория:
+#   ../application  — Laravel-приложение (Domain/Application/Infrastructure/Presentation)
+#   ../node-worker  — Playwright + CDP screencast relay (TypeScript)
+#   .               — Dockerfile'ы, конфиги инфраструктуры, cita-watcher-docker/.env (переменные compose)
+#
+# Два разных .env:
+#   cita-watcher-docker/.env — переменные ДЛЯ САМОГО compose (подстановка ${DB_PASSWORD} и т.п.)
+#   application/.env         — рантайм-конфиг Laravel, читается фреймворком из bind-mount'а,
+#                            сюда НЕ переносим и явно не подключаем через env_file
+#
+# Сервисы:
+#   nginx           — веб-сервер, отдаёт Laravel + проксирует CDP-screencast WS
+#   app             — php-fpm, само Laravel-приложение
+#   queue-worker    — обработка исходящих команд к Node-воркеру (Laravel Queue)
+#   event-consumer  — приём событий (CheckCompleted/CaptchaRequired/CheckFailed) от Node-воркера
+#   scheduler       — планировщик (php artisan schedule:work)
+#   node-worker     — Playwright + CDP screencast relay, реальные проверки на сайте sede...
+#   redis           — очередь команд + pub/sub событий между Laravel и Node
+#   db              — Postgres, хранение WatchTask/логов/зашифрованных данных заявителя
+
+x-app-build: &app-build
+  context: ../application
+  dockerfile: ../cita-watcher-docker/app/Dockerfile
+  # php.ini лежит в cita-watcher-docker/app/, вне основного контекста (../application) —
+  # подключаем docker/app/ отдельным именованным контекстом, чтобы
+  # `COPY --from=phpconfig php.ini ...` в Dockerfile мог его найти.
+  additional_contexts:
+    - phpconfig=./app
+
+services:
+  nginx:
+    image: nginx:1.30-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_started
+      node-worker:
+        condition: service_started
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ../application:/var/www/html:ro # bind-mount, nginx нужен только public/ на чтение
+    networks:
+      - cita-net
+
+  app:
+    build: *app-build
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DB_HOST: db
+      REDIS_HOST: redis
+    volumes:
+      - ../application:/var/www/html # bind-mount: изменения кода видны без ребилда
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - cita-net
+
+  queue-worker:
+    build: *app-build
+    restart: unless-stopped
+    command: ["php", "artisan", "queue:work", "redis", "--queue=watcher-commands", "--tries=3", "--timeout=90"]
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+    volumes:
+      - ../application:/var/www/html
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - cita-net
+
+  event-consumer:
+    build: *app-build
+    restart: unless-stopped
+#    command: ["php", "artisan", "watcher:consume-events"] Раскомментировать после добавления команды
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+    volumes:
+      - ../application:/var/www/html
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - cita-net
+
+  scheduler:
+    build: *app-build
+    restart: unless-stopped
+    command: ["php", "artisan", "schedule:work"]
+    environment:
+      DB_HOST: db
+      REDIS_HOST: redis
+    volumes:
+      - ../application:/var/www/html
+    depends_on:
+      app:
+        condition: service_started
+    networks:
+      - cita-net
+
+  node-worker:
+    build:
+      context: ../node-worker
+      dockerfile: ../cita-watcher-docker/node-worker/Dockerfile
+    command: ["npm", "run", "dev"]
+    restart: unless-stopped
+    environment:
+      REDIS_HOST: redis
+      CDP_RELAY_PORT: ${CDP_RELAY_PORT:-4001}
+      MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-3}
+    volumes:
+      - ../node-worker:/usr/src/app # bind-mount: живая разработка без ребилда образа
+      - node-worker-modules:/usr/src/app/node_modules # именованный volume, чтобы bind-mount не затирал node_modules из образа
+    shm_size: "1gb" # Chromium требует увеличенный /dev/shm
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - cita-net
+
+  redis:
+    image: redis:8.8-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - cita-net
+
+  db:
+    image: postgres:18-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-cita_watcher}
+      POSTGRES_USER: ${DB_USERNAME:-cita_watcher}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in docker/.env}
+    volumes:
+      - db-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USERNAME:-cita_watcher}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks:
+      - cita-net
+
+volumes:
+  node-worker-modules:
+  redis-data:
+  db-data:
+
+networks:
+  cita-net:
+    driver: bridge

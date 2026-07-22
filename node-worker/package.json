@@ -1,0 +1,31 @@
+{
+  "name": "cita-watcher-node-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playwright-based worker: automates the sede.administracionespublicas.gob.es availability check and relays CDP screencast for manual captcha solving.",
+  "engines": {
+    "node": ">=22.0.0"
+  },
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src --ext .ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "playwright": "1.61.0",
+    "ioredis": "5.4.2",
+    "ws": "8.18.0"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2",
+    "tsx": "4.19.2",
+    "@types/node": "22.10.2",
+    "@types/ws": "8.5.13",
+    "eslint": "9.17.0",
+    "vitest": "3.0.5"
+  }
+}

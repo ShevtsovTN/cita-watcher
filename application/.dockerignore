@@ -1,0 +1,37 @@
+# application/.dockerignore
+# Всё, что генерируется на хосте или не должно попадать в образ.
+# Без этого файла `COPY . .` тащит в образ локальные артефакты (в т.ч. кэш
+# Laravel с dev-провайдерами вроде Laravel\Pail\PailServiceProvider),
+# которые ломают `composer dump-autoload` / `artisan package:discover`.
+
+# Зависимости — ставятся ВНУТРИ образа, а не копируются с хоста
+/vendor
+/node_modules
+
+# Скомпилированный кэш Laravel — должен генерироваться в образе, не копироваться с хоста
+/bootstrap/cache/*.php
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/views/*
+/storage/logs/*
+!/storage/framework/cache/.gitignore
+!/storage/framework/sessions/.gitignore
+!/storage/framework/views/.gitignore
+!/storage/logs/.gitignore
+
+# Секреты и локальный конфиг
+.env
+.env.*
+!.env.example
+
+# VCS / IDE / прочее, не нужное образу
+.git
+.github
+.gitignore
+.idea
+.vscode
+*.md
+tests
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml

@@ -1,0 +1,34 @@
+# docker/.gitignore
+
+# Реальные секреты compose — коммитим только .env.example
+.env
+.env.local
+.env.*.local
+
+# Локальные override-файлы compose (docker compose -f docker-compose.yml -f docker-compose.override.yml)
+docker-compose.override.yml
+docker-compose.*.local.yml
+
+# Логи nginx, если когда-нибудь подключим bind-mount вместо docker logs
+nginx/logs/
+
+# Данные Chromium-профилей node-worker, если будут кешироваться локально при разработке
+node-worker-cache/
+
+# Docker volumes data (if mounted locally)
+postgres_data/
+redis_data/
+
+# Logs
+logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.swp
+*.swo
+*~

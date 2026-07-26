@@ -123,7 +123,6 @@ composer install                 # install PHP deps
 composer run dev                 # serve + queue:listen + pail (logs) + vite, all concurrently
 composer test                    # clears config cache, then `php artisan test`
 php artisan test --filter=Name   # run a single test (by method/class name)
-php artisan test tests/Feature/ExampleTest.php   # run a single test file
 ./vendor/bin/pint                # code style fixer (Laravel Pint)
 ./vendor/bin/pint --test         # check style without fixing
 npm run dev / npm run build      # Vite asset pipeline (Tailwind v4)

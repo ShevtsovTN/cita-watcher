@@ -2,11 +2,11 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Infrastructure\Notification\Delivery;
+namespace Tests\Unit\Domain\Notification\ValueObjects;
 
 use App\Domain\Notification\Enums\DeliveryStatusEnum;
-use App\Infrastructure\Notification\Delivery\DeliveryFailure;
-use App\Infrastructure\Notification\Delivery\NotificationDeliveryReport;
+use App\Domain\Notification\ValueObjects\DeliveryFailure;
+use App\Domain\Notification\ValueObjects\NotificationDeliveryReport;
 use DateTimeImmutable;
 use PHPUnit\Framework\TestCase;
 

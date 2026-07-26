@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Infrastructure\Notification\Delivery;
+namespace App\Domain\Notification\ValueObjects;
 
 final readonly class DeliveryFailure
 {

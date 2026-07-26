@@ -2,9 +2,9 @@
 
 declare(strict_types=1);
 
-namespace Tests\Unit\Infrastructure\Notification\Delivery;
+namespace Tests\Unit\Domain\Notification\ValueObjects;
 
-use App\Infrastructure\Notification\Delivery\DeliveryFailure;
+use App\Domain\Notification\ValueObjects\DeliveryFailure;
 use PHPUnit\Framework\TestCase;
 
 final class DeliveryFailureTest extends TestCase

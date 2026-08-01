@@ -18,9 +18,16 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
 - `App\Infrastructure\Providers\NotificationServiceProvider` binds `TelegramNotificationChannel`
   (wired to `services.telegram.bot_token`) and `NotificationChannelResolverInterface` in
   `register()`; covered end-to-end by a Feature test resolving through the container.
-- Phase 0 (below) is complete.
-- Only `User` and the base `Controller` exist outside of the above — no `Watcher` bounded context,
-  no migrations beyond Laravel's defaults, no queue/event wiring.
+- `App\Domain\Watcher\...` — `WatchTask` entity (lifecycle via `start()`/`pause()`/`resume()`/
+  `complete()`/`fail()`, guarded by `InvalidWatchTaskTransitionException`); enums
+  `WatchTaskStatusEnum` and `WatchTaskNotificationChannelEnum`; value objects `Procedure`,
+  `ApplicantData`, `AppointmentSlot`, `CheckResult`; domain events `SlotsFoundEvent`,
+  `CaptchaInterventionRequiredEvent`, `CheckFailedEvent`; `WatchTaskRepositoryInterface`. All with
+  unit tests. `WatchTaskNotificationChannelEnum` is deliberately its own type, not
+  `Domain\Notification\Enums\NotificationChannelNameEnum` — see the Phase 1 note below.
+- Phase 0 and Phase 1 (below) are complete.
+- Only `User` and the base `Controller` exist outside of the above — no persistence, use cases,
+  messaging, or presentation layer for `Watcher` yet.
 
 Every phase below follows the layering and DDD/SOLID conventions in `../application/CLAUDE.md` —
 new business capabilities get their own `Domain/<Context>`, `Application/<Context>`,
@@ -50,21 +57,35 @@ live exclusively in `Infrastructure/Providers`.
       to a working channel), not just the channel unit tests that already exist. Added
       `tests/Feature/Notification/NotificationServiceProviderTest.php`.
 
-## Phase 1 — Watcher domain core (`Domain/Watcher`)
+## Phase 1 — Watcher domain core (`Domain/Watcher`) ✅ done
 
-- [ ] `WatchTask` entity: identity, lifecycle status (e.g. `pending` / `running` / `paused` /
-      `completed` / `failed`), owning user, notification preferences.
-- [ ] Value objects: `Procedure` (province/trámite combination, validating itself in its
+- [x] `WatchTask` entity: identity, lifecycle status (e.g. `pending` / `running` / `paused` /
+      `completed` / `failed`), owning user, notification preferences. Implemented with a private
+      mutable `status` behind `start()`/`pause()`/`resume()`/`complete()`/`fail()`; each guards its
+      allowed source statuses and throws `InvalidWatchTaskTransitionException` otherwise.
+      Constructor rejects a blank `notificationTarget` via `InvalidWatchTaskException`.
+- [x] Value objects: `Procedure` (province/trámite combination, validating itself in its
       constructor per the "no anemic domain model" rule), `ApplicantData`, `AppointmentSlot`,
-      `CheckResult`.
-- [ ] `WatchTaskStatus` backed enum (mirrors the `DeliveryStatusEnum` pattern already established
-      in `Domain/Notification`).
-- [ ] Domain events, past-tense per convention: `SlotsFoundEvent`, `CaptchaInterventionRequiredEvent`,
+      `CheckResult`. `Procedure`/`ApplicantData` validate required fields aren't blank
+      (`InvalidProcedureException`/`InvalidApplicantDataException`); `CheckResult` has no boolean
+      "slots found" flag to validate at all — `slotsFound()` is derived from the `slots` array so
+      the contradictory state can't be constructed in the first place.
+- [x] `WatchTaskStatusEnum` backed enum (mirrors the `DeliveryStatusEnum` pattern already
+      established in `Domain/Notification`) — plus `isTerminal()` (`COMPLETED`/`FAILED`).
+- [x] Domain events, past-tense per convention: `SlotsFoundEvent`, `CaptchaInterventionRequiredEvent`,
       `CheckFailedEvent` — carrying only the data a listener needs, not whole aggregates.
-- [ ] `WatchTaskRepositoryInterface` in `Domain/Watcher/Repository` (interface only — no Eloquent
-      here).
-- [ ] Unit tests for entity/value-object invariants, matching the existing
+- [x] `WatchTaskRepositoryInterface` in `Domain/Watcher/Repository` (interface only — no Eloquent
+      here). Kept narrow per ISP: `find`/`save`/`delete` only.
+- [x] Unit tests for entity/value-object invariants, matching the existing
       `tests/Unit/Domain/Notification/...` structure.
+
+**Design note not in the original checklist:** notification preferences on `WatchTask` use a new
+`WatchTaskNotificationChannelEnum` (`Domain/Watcher/Enums`), not
+`Domain\Notification\Enums\NotificationChannelNameEnum` directly — reaching into another bounded
+context's Domain layer would violate the "Bounded context first" rule in
+`../application/CLAUDE.md`. Phase 3's `SlotsFoundEvent` listener is where the two enums get mapped
+to each other before calling `SendNotificationUseCase`; don't skip that translation step by having
+`WatchTask` depend on the Notification context's enum directly.
 
 ## Phase 2 — Watcher persistence (`Infrastructure/Watcher`)
 
@@ -88,7 +109,10 @@ live exclusively in `Infrastructure/Providers`.
 - [ ] `WorkerGatewayInterface` port (narrow — only knows how to send commands to node-worker, per
       the ISP note in `../application/CLAUDE.md`) in `Application/Watcher/Ports`.
 - [ ] Listener(s) reacting to `SlotsFoundEvent` → invoke `SendNotificationUseCase` from Phase 0,
-      keeping notification dispatch decoupled from the check-dispatch use case.
+      keeping notification dispatch decoupled from the check-dispatch use case. This is also where
+      `WatchTask`'s `WatchTaskNotificationChannelEnum` (Phase 1) gets mapped to Notification's
+      `NotificationChannelNameEnum` — the listener is the intended cross-context translation point,
+      per the Phase 1 design note above.
 - [ ] Unit tests per use case with mocked ports, matching the existing
       `tests/Unit/Application/Notification/SendNotificationUseCaseTest.php` pattern.
 
@@ -101,7 +125,8 @@ live exclusively in `Infrastructure/Providers`.
 - [ ] Define the `WorkerCommand` payload shape — must match what `node-worker`'s
       `messaging/` module expects to deserialize (see `../docs/NODE_WORKER_ROADMAP.md` Phase 3;
       coordinate the contract, don't assume it exists yet).
-- [ ] Queued job wrapping `DispatchAvailabilityCheckUseCase` so `schedule:work`
+- [ ] Queued job wrapping `DispatchAvailabilityCheckUseCase` (e.g. `DispatchAvailabilityCheckJob`,
+      per the `Job` suffix convention in `../application/CLAUDE.md`) so `schedule:work`
       (the `scheduler` service) can enqueue periodic checks per `WatchTask`.
 - [ ] Bind `WorkerGatewayInterface` → `RedisWorkerGateway` in `Infrastructure/Providers`.
 - [ ] Tests against a fake/real Redis for the gateway; feature test for the scheduled dispatch

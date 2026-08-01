@@ -117,6 +117,7 @@ a port interface instead and inject the implementation.
 | Service provider (Infrastructure) | Suffix `ServiceProvider` | `AppServiceProvider`, `NotificationServiceProvider`, `WatcherServiceProvider` |
 | Controller (Presentation) | Suffix `Controller` | `Controller`, `WatchTaskController` |
 | Console command (Presentation) | Suffix `Command` | `ConsumeWatcherEventsCommand` |
+| Queued job (Presentation) | Suffix `Job` | `DispatchAvailabilityCheckJob` |
 | Form request (Presentation) | Suffix `Request` | `CreateWatchTaskRequest` |
 | Exception | Suffix `Exception` | `UnsupportedNotificationChannelException` |
 | Test | `<ClassUnderTest>Test`, mirrors `app/` namespace 1:1 under `tests/Unit`/`tests/Feature` | `SendNotificationUseCaseTest`, `NotificationChannelResolverTest` |

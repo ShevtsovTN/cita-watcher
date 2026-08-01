@@ -57,8 +57,8 @@ live exclusively in `Infrastructure/Providers`.
 - [ ] Value objects: `Procedure` (province/trámite combination, validating itself in its
       constructor per the "no anemic domain model" rule), `ApplicantData`, `AppointmentSlot`,
       `CheckResult`.
-- [ ] `WatchTaskStatus` backed enum (mirrors the `DeliveryStatusEnum` pattern already established
-      in `Domain/Notification`).
+- [ ] `WatchTaskStatusEnum` backed enum (mirrors the `DeliveryStatusEnum` pattern already
+      established in `Domain/Notification`).
 - [ ] Domain events, past-tense per convention: `SlotsFoundEvent`, `CaptchaInterventionRequiredEvent`,
       `CheckFailedEvent` — carrying only the data a listener needs, not whole aggregates.
 - [ ] `WatchTaskRepositoryInterface` in `Domain/Watcher/Repository` (interface only — no Eloquent

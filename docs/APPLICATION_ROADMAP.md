@@ -25,8 +25,13 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   `CaptchaInterventionRequiredEvent`, `CheckFailedEvent`; `WatchTaskRepositoryInterface`. All with
   unit tests. `WatchTaskNotificationChannelEnum` is deliberately its own type, not
   `Domain\Notification\Enums\NotificationChannelNameEnum` — see the Phase 1 note below.
-- Phase 0 and Phase 1 (below) are complete.
-- Only `User` and the base `Controller` exist outside of the above — no persistence, use cases,
+- `App\Infrastructure\Persistence\Models\WatchTask` Eloquent model (native enum casts for
+  `status`/`notification_channel`) and `App\Infrastructure\Watcher\Persistence\EloquentWatchTaskRepository`
+  implementing `WatchTaskRepositoryInterface`, bound in `WatcherServiceProvider`. Migration
+  `create_watch_tasks_table` — `ApplicantData`/`Procedure` columns are plain (not yet encrypted,
+  see Phase 6). Covered by `tests/Unit/Infrastructure/Watcher/Persistence/EloquentWatchTaskRepositoryTest.php`.
+- Phase 0, Phase 1, and Phase 2 (below) are complete.
+- Only `User` and the base `Controller` exist as Presentation-layer pieces — no use cases,
   messaging, or presentation layer for `Watcher` yet.
 
 Every phase below follows the layering and DDD/SOLID conventions in `../application/CLAUDE.md` —
@@ -87,19 +92,38 @@ context's Domain layer would violate the "Bounded context first" rule in
 to each other before calling `SendNotificationUseCase`; don't skip that translation step by having
 `WatchTask` depend on the Notification context's enum directly.
 
-## Phase 2 — Watcher persistence (`Infrastructure/Watcher`)
+## Phase 2 — Watcher persistence (`Infrastructure/Watcher`) ✅ done
 
-- [ ] Migrations: `watch_tasks`, plus whatever normalization `ApplicantData`/`Procedure` need
-      (encrypted columns — see Phase 5).
-- [ ] `App\Infrastructure\Persistence\Models\WatchTask` Eloquent model, following the existing
-      attribute-based `#[Fillable]`/`#[Hidden]` convention from `Models\User`.
-- [ ] `EloquentWatchTaskRepository implements WatchTaskRepositoryInterface` in
+- [x] Migrations: `watch_tasks`, plus whatever normalization `ApplicantData`/`Procedure` need
+      (encrypted columns — see Phase 5). Added `2026_08_01_120000_create_watch_tasks_table.php`
+      with plain (unencrypted) columns for now; `user_id` is a `constrained()->cascadeOnDelete()`
+      foreign key to `users`.
+- [x] `App\Infrastructure\Persistence\Models\WatchTask` Eloquent model, following the existing
+      attribute-based `#[Fillable]`/`#[Hidden]` convention from `Models\User`. Also added native
+      enum casts (`status` → `WatchTaskStatusEnum`, `notification_channel` →
+      `WatchTaskNotificationChannelEnum`) so the repository never handles raw strings.
+- [x] `EloquentWatchTaskRepository implements WatchTaskRepositoryInterface` in
       `Infrastructure/Watcher/Persistence`, mapping between the Eloquent model and the Domain
       entity/value objects (Application code must never type-hint the Eloquent class).
-- [ ] Bind `WatchTaskRepositoryInterface` → `EloquentWatchTaskRepository` in a new
+- [x] Bind `WatchTaskRepositoryInterface` → `EloquentWatchTaskRepository` in a new
       `WatcherServiceProvider` (or extend an existing one) registered in `bootstrap/providers.php`.
-- [ ] Repository tests against the in-memory SQLite test DB (`phpunit.xml` already configures
-      this).
+- [x] Repository tests against the in-memory SQLite test DB (`phpunit.xml` already configures
+      this). Added `tests/Unit/Infrastructure/Watcher/Persistence/EloquentWatchTaskRepositoryTest.php`
+      (create/find/update/delete, `RefreshDatabase`).
+
+**Changes not in the original checklist:**
+- `WatchTaskRepositoryInterface::save()` now returns `WatchTask` instead of `void` — a
+  not-yet-persisted `WatchTask` has a `null`, `readonly` id, so the caller needs the repository to
+  hand back the persisted instance (with the storage-assigned id) rather than mutate the original
+  in place.
+- Fixed a pre-existing bug uncovered while writing the repository test:
+  `database/factories/UserFactory.php` had no explicit `protected $model`, so Laravel's
+  convention-based guesser produced `App\User` (the `App\Models\User` guess failed since this repo
+  doesn't use that path, and it fell back further than expected) instead of
+  `App\Infrastructure\Persistence\Models\User`, which broke `User::factory()->create()` in tests.
+  Also fixed `use app\Infrastructure\Persistence\Models\User;` (lowercase `app`) in
+  `config/auth.php` and `database/seeders/DatabaseSeeder.php` — same underlying class, wrong case,
+  which would have broken real auth/`db:seed` too, not just factories.
 
 ## Phase 3 — Watcher application layer (`Application/Watcher`)
 

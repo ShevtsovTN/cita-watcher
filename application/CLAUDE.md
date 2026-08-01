@@ -164,12 +164,20 @@ The `User` model also uses attribute-based `#[Fillable]` / `#[Hidden]` instead o
 ```bash
 composer install                 # install PHP deps
 composer run dev                 # serve + queue:listen + pail (logs) + vite, all concurrently
-composer test                    # clears config cache, then `php artisan test`
-php artisan test --filter=Name   # run a single test (by method/class name)
-./vendor/bin/pint                # code style fixer (Laravel Pint)
-./vendor/bin/pint --test         # check style without fixing
 npm run dev / npm run build      # Vite asset pipeline (Tailwind v4)
 ```
+
+**Tests and Pint run inside the `app` container, not on the host.** From the repo root:
+
+```bash
+docker compose -f cita-watcher-docker/docker-compose.yml exec app composer test
+docker compose -f cita-watcher-docker/docker-compose.yml exec app php artisan test --filter=Name
+docker compose -f cita-watcher-docker/docker-compose.yml exec app ./vendor/bin/pint
+docker compose -f cita-watcher-docker/docker-compose.yml exec app ./vendor/bin/pint --test
+```
+
+Never suggest or run `composer test` / `php artisan test` / `./vendor/bin/pint` directly on the
+host — the user runs these from inside the container themselves.
 
 Tests run against in-memory SQLite with sync queue/array cache/session drivers regardless of
 `application/.env` — see `phpunit.xml`.

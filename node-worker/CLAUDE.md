@@ -24,6 +24,29 @@ concrete classes across folders where an abstraction would do.
 code. Module output is CommonJS via `NodeNext` (package.json has no `"type": "module"`), which is
 what `CMD ["node", "dist/index.js"]` in the Dockerfile expects.
 
+### Naming conventions
+
+TypeScript idiom here, not the PHP side's `Interface`-suffix style: an interface/type describing a
+data shape gets a plain noun name; only concrete classes get a distinguishing prefix when more than
+one implementation of a role could exist.
+
+| Kind | Rule | Examples |
+|---|---|---|
+| Config/data-shape interface | Plain noun, no suffix | `WorkerConfig` |
+| Message/domain type (command, result, slot) | Plain noun, no suffix | `WorkerCommand`, `CheckResult`, `AppointmentSlot` |
+| Outbound event shape | Suffix `Event`, past-tense/descriptive | `CheckCompletedEvent`, `CaptchaRequiredEvent`, `CheckFailedEvent` |
+| Custom error class | Suffix `Error`, extends `Error` | `EnvValidationError` |
+| Role interface with pluggable implementations | Plain noun naming the role, no suffix | `SessionManager`, `ScreencastRelay` |
+| Concrete implementation of a role interface | `<Technology/detail><RoleName>` | `PlaywrightSessionManager`, `RedisCommandConsumer`, `RedisEventPublisher` |
+| Module-level singleton instance | camelCase, mirrors its type name | `config` (instance of `WorkerConfig`) |
+| Function | camelCase verb phrase | `loadConfig`, `requireString`, `parsePort` |
+| Narrow/internal type alias | PascalCase noun, no suffix | `EnvSource` |
+| Test file | `<subject>.test.ts`, colocated or mirroring `src/` under a test root | `config.test.ts` |
+
+**General rule for role-interface implementations:** name = `<technology/detail>` + `<role
+interface name>` — the same principle as the PHP side's "adapter + port name" rule, just without
+an `Interface` suffix to strip since TS interfaces don't carry one here.
+
 ### Config convention (`src/config.ts`)
 
 **Never read `process.env` outside this module.** Everything else depends only on the

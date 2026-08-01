@@ -89,14 +89,42 @@ a port interface instead and inject the implementation.
 - `declare(strict_types=1);` at the top of every PHP file.
 - Constructor property promotion + `readonly` for value objects and for use case dependencies.
 - `final` by default on classes not explicitly designed for extension.
-- Prefer backed `enum` over string/int constants for closed sets of values (e.g. `CheckResultType`,
-  `WatchTaskStatus`).
+- Prefer backed `enum` over string/int constants for closed sets of values (e.g.
+  `CheckResultTypeEnum`, `WatchTaskStatusEnum`) — see "Class naming conventions" below for the
+  `Enum` suffix rule.
 - Dependency injection via constructor everywhere; avoid `app()`/`resolve()` service-location calls
   and avoid Laravel facades (`Auth::`, `Cache::`, ...) outside the `Presentation`/`Infrastructure`
   layers.
 - Match the existing attribute-based model conventions (`#[Fillable]`, `#[Hidden]` — see
   `App\Infrastructure\Persistence\Models\User`) rather than the classic `protected $fillable`
   arrays, for any new Eloquent model.
+
+## Class naming conventions
+
+| Class kind | Rule | Examples |
+|---|---|---|
+| Domain entity | Plain noun, no suffix | `WatchTask` |
+| Value object | Plain noun, no suffix | `NotificationMessage`, `NotificationDeliveryReport`, `DeliveryFailure`, `Procedure`, `ApplicantData` |
+| Enum | Suffix `Enum` | `DeliveryStatusEnum`, `NotificationChannelNameEnum`, `WatchTaskStatusEnum` |
+| Domain event | Past tense + suffix `Event` | `SlotsFoundEvent`, `CaptchaInterventionRequiredEvent`, `CheckFailedEvent` |
+| Repository interface (Domain) | `<Entity>RepositoryInterface` | `WatchTaskRepositoryInterface` |
+| Port interface (Application) | Suffix `Interface` | `NotificationChannelInterface`, `NotificationChannelResolverInterface`, `WorkerGatewayInterface`, `ApplicantDataEncryptorInterface` |
+| Use case (Application) | Imperative verb phrase + suffix `UseCase` | `SendNotificationUseCase`, `CreateWatchTaskUseCase`, `DispatchAvailabilityCheckUseCase` |
+| Listener (Application) | Suffix `Listener` | `SendNotificationOnSlotsFoundListener` |
+| Repository implementation (Infrastructure) | `<Adapter><Entity>Repository` | `EloquentWatchTaskRepository` |
+| Gateway / resolver / channel implementation (Infrastructure) | `<Adapter><PortNameWithoutInterface>` | `MailNotificationChannel`, `TelegramNotificationChannel`, `NotificationChannelResolver`, `RedisWorkerGateway` |
+| Eloquent model (Infrastructure) | Plain noun, no suffix | `User`, `WatchTask` |
+| Service provider (Infrastructure) | Suffix `ServiceProvider` | `AppServiceProvider`, `NotificationServiceProvider`, `WatcherServiceProvider` |
+| Controller (Presentation) | Suffix `Controller` | `Controller`, `WatchTaskController` |
+| Console command (Presentation) | Suffix `Command` | `ConsumeWatcherEventsCommand` |
+| Form request (Presentation) | Suffix `Request` | `CreateWatchTaskRequest` |
+| Exception | Suffix `Exception` | `UnsupportedNotificationChannelException` |
+| Test | `<ClassUnderTest>Test`, mirrors `app/` namespace 1:1 under `tests/Unit`/`tests/Feature` | `SendNotificationUseCaseTest`, `NotificationChannelResolverTest` |
+
+**General rule for Infrastructure port implementations:** name = `<adapter/technology>` +
+`<port interface name without the trailing "Interface">`. E.g. `TelegramNotificationChannel` =
+`Telegram` + `NotificationChannel` (from `NotificationChannelInterface`); `EloquentWatchTaskRepository`
+= `Eloquent` + `WatchTaskRepository` (from `WatchTaskRepositoryInterface`).
 
 ## Testing
 

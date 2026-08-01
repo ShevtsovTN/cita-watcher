@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Tests\Unit\Application\Notification;
 
 use App\Application\Notification\Ports\NotificationChannelInterface;
+use App\Application\Notification\Ports\NotificationChannelResolverInterface;
 use App\Application\Notification\UseCases\SendNotificationUseCase;
 use App\Domain\Notification\Enums\DeliveryStatusEnum;
+use App\Domain\Notification\Enums\NotificationChannelNameEnum;
 use App\Domain\Notification\ValueObjects\NotificationDeliveryReport;
 use App\Domain\Notification\ValueObjects\NotificationMessage;
 use Mockery;
@@ -17,7 +19,7 @@ final class SendNotificationUseCaseTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    public function test_it_delegates_sending_to_the_given_channel(): void
+    public function test_it_resolves_the_requested_channel_and_delegates_sending_to_it(): void
     {
         $message = new NotificationMessage('Slots found');
         $expectedReport = new NotificationDeliveryReport(
@@ -32,9 +34,15 @@ final class SendNotificationUseCaseTest extends TestCase
             ->with('123456789', $message)
             ->andReturn($expectedReport);
 
-        $useCase = new SendNotificationUseCase($channel);
+        $resolver = Mockery::mock(NotificationChannelResolverInterface::class);
+        $resolver->shouldReceive('resolve')
+            ->once()
+            ->with(NotificationChannelNameEnum::TELEGRAM)
+            ->andReturn($channel);
 
-        $report = $useCase->execute('123456789', $message);
+        $useCase = new SendNotificationUseCase($resolver);
+
+        $report = $useCase->execute(NotificationChannelNameEnum::TELEGRAM, '123456789', $message);
 
         $this->assertSame($expectedReport, $report);
     }
@@ -51,9 +59,12 @@ final class SendNotificationUseCaseTest extends TestCase
         $channel = Mockery::mock(NotificationChannelInterface::class);
         $channel->shouldReceive('send')->once()->andReturn($failedReport);
 
-        $useCase = new SendNotificationUseCase($channel);
+        $resolver = Mockery::mock(NotificationChannelResolverInterface::class);
+        $resolver->shouldReceive('resolve')->once()->andReturn($channel);
 
-        $report = $useCase->execute('123456789', $message);
+        $useCase = new SendNotificationUseCase($resolver);
+
+        $report = $useCase->execute(NotificationChannelNameEnum::TELEGRAM, '123456789', $message);
 
         $this->assertFalse($report->isSuccessful());
     }

@@ -6,15 +6,19 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
 
 **Already in place** (so later phases don't re-derive it):
 
-- `App\Domain\Notification\...` — `DeliveryStatusEnum`, and value objects `NotificationMessage`,
-  `NotificationDeliveryReport`, `DeliveryFailure`, all with unit tests.
-- `App\Application\Notification\Ports\NotificationChannelInterface` and
-  `UseCases\SendNotificationUseCase`.
+- `App\Domain\Notification\...` — `DeliveryStatusEnum`, `NotificationChannelNameEnum`, and value
+  objects `NotificationMessage`, `NotificationDeliveryReport`, `DeliveryFailure`, all with unit
+  tests.
+- `App\Application\Notification\Ports\{NotificationChannelInterface,NotificationChannelResolverInterface}`
+  and `UseCases\SendNotificationUseCase` (takes a `NotificationChannelNameEnum` and resolves the
+  channel through the resolver port rather than a constructor-fixed channel).
 - `App\Infrastructure\Notification\Channels\{MailNotificationChannel,TelegramNotificationChannel}`,
-  both implementing the port, with unit tests.
-- `App\Infrastructure\Providers\NotificationServiceProvider` exists and is registered in
-  `bootstrap/providers.php`, but `register()`/`boot()` are still empty stubs — no interface→
-  implementation binding yet.
+  both implementing the port, with unit tests; `App\Infrastructure\Notification\NotificationChannelResolver`
+  implements the resolver port, with unit tests.
+- `App\Infrastructure\Providers\NotificationServiceProvider` binds `TelegramNotificationChannel`
+  (wired to `services.telegram.bot_token`) and `NotificationChannelResolverInterface` in
+  `register()`; covered end-to-end by a Feature test resolving through the container.
+- Phase 0 (below) is complete.
 - Only `User` and the base `Controller` exist outside of the above — no `Watcher` bounded context,
   no migrations beyond Laravel's defaults, no queue/event wiring.
 
@@ -23,21 +27,28 @@ new business capabilities get their own `Domain/<Context>`, `Application/<Contex
 `Infrastructure/<Context>` subdirectories, dependencies point inward only, and container bindings
 live exclusively in `Infrastructure/Providers`.
 
-## Phase 0 — Close out Notification infrastructure
+## Phase 0 — Close out Notification infrastructure ✅ done
 
-- [ ] Wire `NotificationServiceProvider::register()`: bind `NotificationChannelInterface` to a
+- [x] Wire `NotificationServiceProvider::register()`: bind `NotificationChannelInterface` to a
       channel implementation (or introduce a `NotificationChannelResolver`/factory keyed by
       channel name, since both Mail and Telegram implementations already exist and a real
-      `WatchTask` will need to pick one per user preference).
-- [ ] Add `services.telegram.bot_token` (or similar) to `config/services.php`, sourced from
+      `WatchTask` will need to pick one per user preference). Implemented as
+      `NotificationChannelResolverInterface` → `NotificationChannelResolver`, plus an explicit
+      `TelegramNotificationChannel` binding (`MailNotificationChannel` autowires via the framework's
+      `Mailer` binding, no explicit binding needed).
+- [x] Add `services.telegram.bot_token` (or similar) to `config/services.php`, sourced from
       `env('TELEGRAM_BOT_TOKEN')`, and inject it into `TelegramNotificationChannel` via the
-      provider instead of constructing it ad hoc.
-- [ ] Decide how `SendNotificationUseCase` is invoked in practice: it currently takes a single
+      provider instead of constructing it ad hoc. Also added `TELEGRAM_BOT_TOKEN` to
+      `.env.example`.
+- [x] Decide how `SendNotificationUseCase` is invoked in practice: it currently takes a single
       injected channel, but a `WatchTask` will need to notify through whichever channel(s) the
-      user configured — likely needs a small `NotificationChannelName` enum/registry rather than
-      constructor-fixed channel selection.
-- [ ] Feature test exercising the provider bindings end-to-end (container resolves the interface
-      to a working channel), not just the channel unit tests that already exist.
+      user configured — likely needs a small `NotificationChannelNameEnum` enum/registry rather than
+      constructor-fixed channel selection. Done: `NotificationChannelNameEnum` (`mail`/`telegram`)
+      added to `Domain/Notification/Enums`; `SendNotificationUseCase::execute()` now takes the enum
+      and resolves the channel per call via `NotificationChannelResolverInterface`.
+- [x] Feature test exercising the provider bindings end-to-end (container resolves the interface
+      to a working channel), not just the channel unit tests that already exist. Added
+      `tests/Feature/Notification/NotificationServiceProviderTest.php`.
 
 ## Phase 1 — Watcher domain core (`Domain/Watcher`)
 

@@ -19,11 +19,16 @@ The repo is a monorepo with three independent parts, each with its own toolchain
 - `cita-watcher-docker/` — Dockerfiles, nginx config, and the `docker-compose.yml` that wires
   everything together for local/dev/prod runs. See `cita-watcher-docker/CLAUDE.md`.
 
-**Project stage:** this is an early scaffold. Only `User` and the base `Controller`/service
-provider exist on the Laravel side; `node-worker/src/index.ts` is an empty stub; the
-`event-consumer` service and its `watcher:consume-events` artisan command don't exist yet (the
-line is commented out in `docker-compose.yml`). Don't assume watcher/domain logic exists — check
-before referencing it.
+**Project stage:** on the Laravel side, `Domain/Watcher`, `Infrastructure/Watcher` (persistence),
+and `Application/Watcher` (use cases, the `WorkerGatewayInterface` port, the `SlotsFoundEvent`
+notification listener) are implemented — see `docs/APPLICATION_ROADMAP.md` Phases 1–3. Outbound
+Redis command dispatch to node-worker, the `event-consumer`, applicant data encryption, and any
+`Watcher` Presentation layer are still outstanding (Phases 4–7); only `User` and the base
+`Controller` exist as Presentation-layer pieces so far. `node-worker/src/index.ts` is still an
+empty stub; the `event-consumer` service and its `watcher:consume-events` artisan command don't
+exist yet (the line is commented out in `docker-compose.yml`). Check the relevant roadmap
+(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
+piece exists.
 
 ## Cross-service architecture
 

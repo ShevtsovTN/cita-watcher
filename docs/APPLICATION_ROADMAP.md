@@ -30,9 +30,15 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   implementing `WatchTaskRepositoryInterface`, bound in `WatcherServiceProvider`. Migration
   `create_watch_tasks_table` — `ApplicantData`/`Procedure` columns are plain (not yet encrypted,
   see Phase 6). Covered by `tests/Unit/Infrastructure/Watcher/Persistence/EloquentWatchTaskRepositoryTest.php`.
-- Phase 0, Phase 1, and Phase 2 (below) are complete.
-- Only `User` and the base `Controller` exist as Presentation-layer pieces — no use cases,
-  messaging, or presentation layer for `Watcher` yet.
+- `App\Application\Watcher\UseCases\{CreateWatchTaskUseCase,DispatchAvailabilityCheckUseCase,PauseWatchTaskUseCase,ResumeWatchTaskUseCase,DeleteWatchTaskUseCase}`,
+  `Application\Watcher\Ports\WorkerGatewayInterface`, and
+  `Application\Watcher\Listeners\SendNotificationOnSlotsFoundListener` (registered on
+  `SlotsFoundEvent` in `WatcherServiceProvider::boot()`), all with unit tests.
+  `WatchTaskNotFoundException` (`Domain\Watcher\Exceptions`) backs the not-found path for the
+  id-based use cases — see the Phase 3 note below.
+- Phase 0, Phase 1, Phase 2, and Phase 3 (below) are complete.
+- Only `User` and the base `Controller` exist as Presentation-layer pieces — no controllers,
+  messaging (Phase 4's `RedisWorkerGateway`), or presentation layer for `Watcher` yet.
 
 Every phase below follows the layering and DDD/SOLID conventions in `../application/CLAUDE.md` —
 new business capabilities get their own `Domain/<Context>`, `Application/<Context>`,
@@ -125,20 +131,38 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   `config/auth.php` and `database/seeders/DatabaseSeeder.php` — same underlying class, wrong case,
   which would have broken real auth/`db:seed` too, not just factories.
 
-## Phase 3 — Watcher application layer (`Application/Watcher`)
+## Phase 3 — Watcher application layer (`Application/Watcher`) ✅ done
 
-- [ ] Use cases: `CreateWatchTaskUseCase`, `DispatchAvailabilityCheckUseCase` (dispatch only — per
+- [x] Use cases: `CreateWatchTaskUseCase`, `DispatchAvailabilityCheckUseCase` (dispatch only — per
       the SRP example already written into `../application/CLAUDE.md`, it must not also notify or
       log), `PauseWatchTaskUseCase`/`ResumeWatchTaskUseCase`, `DeleteWatchTaskUseCase`.
-- [ ] `WorkerGatewayInterface` port (narrow — only knows how to send commands to node-worker, per
+- [x] `WorkerGatewayInterface` port (narrow — only knows how to send commands to node-worker, per
       the ISP note in `../application/CLAUDE.md`) in `Application/Watcher/Ports`.
-- [ ] Listener(s) reacting to `SlotsFoundEvent` → invoke `SendNotificationUseCase` from Phase 0,
+- [x] Listener(s) reacting to `SlotsFoundEvent` → invoke `SendNotificationUseCase` from Phase 0,
       keeping notification dispatch decoupled from the check-dispatch use case. This is also where
       `WatchTask`'s `WatchTaskNotificationChannelEnum` (Phase 1) gets mapped to Notification's
       `NotificationChannelNameEnum` — the listener is the intended cross-context translation point,
-      per the Phase 1 design note above.
-- [ ] Unit tests per use case with mocked ports, matching the existing
+      per the Phase 1 design note above. Implemented as `SendNotificationOnSlotsFoundListener` in
+      `Application/Watcher/Listeners`, registered via `Event::listen()` in
+      `WatcherServiceProvider::boot()`.
+- [x] Unit tests per use case with mocked ports, matching the existing
       `tests/Unit/Application/Notification/SendNotificationUseCaseTest.php` pattern.
+
+**Changes not in the original checklist:**
+- Added `WatchTaskNotFoundException` (`Domain/Watcher/Exceptions`) — not called out in the original
+  checklist, but every use case that looks a `WatchTask` up by id (`DispatchAvailabilityCheckUseCase`,
+  `PauseWatchTaskUseCase`, `ResumeWatchTaskUseCase`, `DeleteWatchTaskUseCase`) needs a way to signal
+  "no such WatchTask" instead of letting a `null` leak past the repository lookup, so it follows the
+  existing `Invalid*Exception` static-factory pattern (`WatchTaskNotFoundException::withId()`).
+- `DispatchAvailabilityCheckUseCase` also calls `WatchTask::start()` (guarded PENDING → RUNNING
+  transition from Phase 1) and re-saves the task after a successful gateway dispatch, so a
+  `WatchTask` can't be dispatched twice while a check is already in flight. The gateway call happens
+  *before* the state transition/save, so a failed dispatch leaves the persisted `WatchTask` untouched
+  rather than stuck showing `RUNNING` with nothing actually sent.
+- The `SendNotificationOnSlotsFoundListener` test constructs a real `SendNotificationUseCase` (backed
+  by a mocked `NotificationChannelResolverInterface`/`NotificationChannelInterface`) rather than
+  mocking `SendNotificationUseCase` directly — it's `final`, and Mockery cannot mock final concrete
+  classes.
 
 ## Phase 4 — Outbound command dispatch to node-worker
 

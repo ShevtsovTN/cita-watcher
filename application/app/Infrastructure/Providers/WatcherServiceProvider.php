@@ -4,8 +4,11 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers;
 
+use App\Application\Watcher\Listeners\SendNotificationOnSlotsFoundListener;
+use App\Domain\Watcher\Events\SlotsFoundEvent;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
 use App\Infrastructure\Watcher\Persistence\EloquentWatchTaskRepository;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\ServiceProvider;
 
 class WatcherServiceProvider extends ServiceProvider
@@ -23,6 +26,6 @@ class WatcherServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Event::listen(SlotsFoundEvent::class, SendNotificationOnSlotsFoundListener::class);
     }
 }

@@ -101,7 +101,8 @@ live exclusively in `Infrastructure/Providers`.
 - [ ] Define the `WorkerCommand` payload shape — must match what `node-worker`'s
       `messaging/` module expects to deserialize (see `../docs/NODE_WORKER_ROADMAP.md` Phase 3;
       coordinate the contract, don't assume it exists yet).
-- [ ] Queued job wrapping `DispatchAvailabilityCheckUseCase` so `schedule:work`
+- [ ] Queued job wrapping `DispatchAvailabilityCheckUseCase` (e.g. `DispatchAvailabilityCheckJob`,
+      per the `Job` suffix convention in `../application/CLAUDE.md`) so `schedule:work`
       (the `scheduler` service) can enqueue periodic checks per `WatchTask`.
 - [ ] Bind `WorkerGatewayInterface` → `RedisWorkerGateway` in `Infrastructure/Providers`.
 - [ ] Tests against a fake/real Redis for the gateway; feature test for the scheduled dispatch

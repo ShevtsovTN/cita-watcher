@@ -98,6 +98,21 @@ a port interface instead and inject the implementation.
   `App\Infrastructure\Persistence\Models\User`) rather than the classic `protected $fillable`
   arrays, for any new Eloquent model.
 
+## Testing
+
+**Test-first.** For new business logic (Domain, Application, and Infrastructure classes), write
+the failing test before the implementation — a unit test for the entity/value-object invariant or
+use case, then the code that makes it pass. Don't write production code first and backfill tests
+afterward. This applies to bug fixes too: reproduce the bug in a failing test before patching it.
+
+- Match the existing split: `tests/Unit/Domain/<Context>/...`, `tests/Unit/Application/<Context>/...`,
+  `tests/Unit/Infrastructure/<Context>/...`, mirroring the `app/` namespace layout 1:1 (see
+  `tests/Unit/Domain/Notification/...` and `tests/Unit/Infrastructure/Notification/Channels/...`
+  for the pattern to follow).
+- `Presentation` controllers/console commands get `tests/Feature` coverage exercising them through
+  the framework (HTTP request in, response out), not unit tests that reach into internals.
+- A class isn't done when it compiles — it's done when its test (written first) is green.
+
 ## Non-standard namespace layout
 
 `application/app/` does **not** use Laravel's default flat namespace. It follows a

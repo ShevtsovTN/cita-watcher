@@ -69,10 +69,15 @@ final readonly class WorkerEventRouter
     }
 
     /**
-     * @param array{watchTaskId: int, reason: string, occurredAt: string} $data
+     * @param array{watchTaskId: int, reason: string, retryable: bool, occurredAt: string} $data
      */
     private function routeCheckFailed(array $data): void
     {
-        $this->handleCheckFailed->execute($data['watchTaskId'], $data['reason'], new DateTimeImmutable($data['occurredAt']));
+        $this->handleCheckFailed->execute(
+            $data['watchTaskId'],
+            $data['reason'],
+            $data['retryable'],
+            new DateTimeImmutable($data['occurredAt']),
+        );
     }
 }

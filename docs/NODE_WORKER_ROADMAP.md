@@ -54,11 +54,39 @@ folders for concrete classes.
 
 ## Phase 3 — Messaging (`messaging/`)
 
-- [ ] Redis command consumer: subscribe to `watcher-commands` (the queue
-      `queue-worker` pushes to), deserialize into `WorkerCommand`, trigger an
-      automation run.
-- [ ] Redis event publisher: emit `CheckCompleted` / `CaptchaRequired` / `CheckFailed`
-      on the pub/sub channel(s) Laravel's future `event-consumer` will read.
+- [ ] Redis command consumer: `BRPOP`/`BLPOP` the raw `watcher-commands` Redis **list** (a plain
+      RPUSH target, not a Laravel queue — see `../application/app/Infrastructure/Watcher/Messaging/RedisWorkerGateway.php`'s
+      docblock for why this doesn't collide with `queue-worker`'s own Laravel-format job queue of
+      the same logical name), deserialize into `WorkerCommand`, trigger an automation run. Current
+      `WorkerCommand` shape (provisional — the Laravel side, not this one, defined it first; treat
+      as a starting point to confirm, not a spec):
+      ```json
+      {
+        "commandId": "uuid",
+        "type": "check_availability",
+        "watchTaskId": 42,
+        "procedure": { "province": "...", "tramiteCode": "..." },
+        "applicant": { "fullName": "...", "documentId": "...", "email": "...", "phone": "..." }
+      }
+      ```
+      `commandId` (added in `../application`'s Phase 8) is for log correlation only — Laravel
+      doesn't track or verify it, so there's no requirement to echo it back precisely, but doing so
+      makes cross-service log correlation (this phase's own "correlate logs by session/command id"
+      item below) actually possible.
+- [ ] Redis event publisher: emit `CheckCompleted` / `CaptchaRequired` / `CheckFailed` as a single
+      `watcher-events` pub/sub channel with a `type` discriminator (symmetric with the outbound
+      shape above), which is what `../application`'s `WorkerEventRouter` already expects. Current
+      expected shapes (same "provisional, confirm don't assume" caveat):
+      ```json
+      {"type": "check_completed", "watchTaskId": 42, "slots": [{"dateTime": "...", "office": "..."}], "checkedAt": "..."}
+      {"type": "captcha_required", "watchTaskId": 42, "occurredAt": "..."}
+      {"type": "check_failed", "watchTaskId": 42, "reason": "...", "retryable": true, "occurredAt": "..."}
+      ```
+      `check_failed`'s `retryable` (added in `../application`'s Phase 8) is this side's call to
+      make: `true` for transient failures worth another scheduled attempt (network timeouts, the
+      site being briefly unreachable), `false` for failures that will never succeed on retry (e.g.
+      an invalid procedure/trámite combination). Laravel trusts this flag as-is — it does no
+      independent judgment of `reason` strings.
 - [ ] Backpressure/concurrency: don't pull more commands than
       `maxConcurrentSessions` allows in flight.
 - [ ] Tests against a real or in-memory Redis (ioredis is already a dependency).

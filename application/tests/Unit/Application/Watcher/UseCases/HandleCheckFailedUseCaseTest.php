@@ -23,7 +23,7 @@ final class HandleCheckFailedUseCaseTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    public function test_it_fails_the_watch_task_and_raises_check_failed(): void
+    public function test_it_fails_the_watch_task_and_raises_check_failed_when_not_retryable(): void
     {
         $watchTask = $this->makeWatchTask();
         $watchTask->start();
@@ -39,15 +39,39 @@ final class HandleCheckFailedUseCaseTest extends TestCase
             ->once()
             ->with(Mockery::on(function (CheckFailedEvent $event) use ($occurredAt): bool {
                 return 42 === $event->watchTaskId
-                    && 'site unreachable' === $event->reason
+                    && 'invalid procedure' === $event->reason
+                    && false === $event->retryable
                     && $occurredAt === $event->occurredAt;
             }));
 
         $useCase = new HandleCheckFailedUseCase($repository, $dispatcher);
 
-        $useCase->execute(42, 'site unreachable', $occurredAt);
+        $useCase->execute(42, 'invalid procedure', retryable: false, occurredAt: $occurredAt);
 
         $this->assertSame(WatchTaskStatusEnum::FAILED, $watchTask->status());
+    }
+
+    public function test_it_retries_the_watch_task_and_raises_check_failed_when_retryable(): void
+    {
+        $watchTask = $this->makeWatchTask();
+        $watchTask->start();
+
+        $occurredAt = new DateTimeImmutable('2026-08-05 09:00');
+
+        $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
+        $repository->shouldReceive('find')->once()->with(42)->andReturn($watchTask);
+        $repository->shouldReceive('save')->once()->with($watchTask)->andReturn($watchTask);
+
+        $dispatcher = Mockery::mock(DomainEventDispatcherInterface::class);
+        $dispatcher->shouldReceive('dispatch')
+            ->once()
+            ->with(Mockery::on(fn(CheckFailedEvent $event): bool => true === $event->retryable));
+
+        $useCase = new HandleCheckFailedUseCase($repository, $dispatcher);
+
+        $useCase->execute(42, 'navigation timeout', retryable: true, occurredAt: $occurredAt);
+
+        $this->assertSame(WatchTaskStatusEnum::PENDING, $watchTask->status());
     }
 
     public function test_it_throws_when_the_watch_task_does_not_exist(): void
@@ -62,7 +86,7 @@ final class HandleCheckFailedUseCaseTest extends TestCase
 
         $this->expectException(WatchTaskNotFoundException::class);
 
-        $useCase->execute(99, 'boom', new DateTimeImmutable());
+        $useCase->execute(99, 'boom', retryable: false, occurredAt: new DateTimeImmutable());
     }
 
     private function makeWatchTask(): WatchTask

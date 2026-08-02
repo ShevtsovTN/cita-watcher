@@ -14,10 +14,11 @@ final class CheckFailedEventTest extends TestCase
     {
         $occurredAt = new DateTimeImmutable('2026-08-10 09:00:00');
 
-        $event = new CheckFailedEvent(watchTaskId: 42, reason: 'Site returned 503', occurredAt: $occurredAt);
+        $event = new CheckFailedEvent(watchTaskId: 42, reason: 'Site returned 503', retryable: true, occurredAt: $occurredAt);
 
         $this->assertSame(42, $event->watchTaskId);
         $this->assertSame('Site returned 503', $event->reason);
+        $this->assertTrue($event->retryable);
         $this->assertSame($occurredAt, $event->occurredAt);
     }
 }

@@ -9,6 +9,7 @@ use App\Application\Watcher\UseCases\HandleCaptchaRequiredUseCase;
 use App\Application\Watcher\UseCases\HandleCheckCompletedUseCase;
 use App\Application\Watcher\UseCases\HandleCheckFailedUseCase;
 use App\Domain\Watcher\Enums\WatchTaskNotificationChannelEnum;
+use App\Domain\Watcher\Enums\WatchTaskStatusEnum;
 use App\Domain\Watcher\Events\CaptchaInterventionRequiredEvent;
 use App\Domain\Watcher\Events\CheckFailedEvent;
 use App\Domain\Watcher\Events\SlotsFoundEvent;
@@ -110,8 +111,36 @@ final class WorkerEventRouterTest extends TestCase
             'type' => 'check_failed',
             'watchTaskId' => 42,
             'reason' => 'site unreachable',
+            'retryable' => false,
             'occurredAt' => '2026-08-05T09:00:00+00:00',
         ], JSON_THROW_ON_ERROR));
+    }
+
+    public function test_it_routes_a_retryable_check_failed_back_to_pending(): void
+    {
+        $watchTask = $this->makeWatchTask();
+        $watchTask->start();
+
+        $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
+        $repository->shouldReceive('find')->once()->with(42)->andReturn($watchTask);
+        $repository->shouldReceive('save')->once()->andReturn($watchTask);
+
+        $dispatcher = Mockery::mock(DomainEventDispatcherInterface::class);
+        $dispatcher->shouldReceive('dispatch')
+            ->once()
+            ->with(Mockery::on(fn(CheckFailedEvent $event): bool => true === $event->retryable));
+
+        $router = $this->makeRouter($repository, $dispatcher);
+
+        $router->route(json_encode([
+            'type' => 'check_failed',
+            'watchTaskId' => 42,
+            'reason' => 'navigation timeout',
+            'retryable' => true,
+            'occurredAt' => '2026-08-05T09:00:00+00:00',
+        ], JSON_THROW_ON_ERROR));
+
+        $this->assertSame(WatchTaskStatusEnum::PENDING, $watchTask->status());
     }
 
     public function test_it_rejects_an_unknown_event_type(): void

@@ -10,6 +10,7 @@ use App\Domain\Watcher\ValueObjects\Procedure;
 use App\Domain\Watcher\WatchTask;
 use App\Infrastructure\Watcher\Messaging\RedisWorkerGateway;
 use Illuminate\Contracts\Redis\Factory as RedisFactory;
+use Illuminate\Log\LogManager;
 use Illuminate\Redis\Connections\Connection;
 use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
@@ -44,7 +45,13 @@ final class RedisWorkerGatewayTest extends TestCase
         $redis = Mockery::mock(RedisFactory::class);
         $redis->shouldReceive('connection')->once()->withNoArgs()->andReturn($connection);
 
-        $gateway = new RedisWorkerGateway($redis);
+        $log = Mockery::mock(LogManager::class);
+        $log->shouldReceive('withContext')->once()->with(Mockery::on(function (array $context) use ($watchTask): bool {
+            return $context['watch_task_id'] === $watchTask->id() && is_string($context['command_id']);
+        }));
+        $log->shouldReceive('info')->once()->with('Dispatched availability check command to node-worker.');
+
+        $gateway = new RedisWorkerGateway($redis, $log);
 
         $gateway->dispatchAvailabilityCheck($watchTask);
     }

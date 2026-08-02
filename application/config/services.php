@@ -39,4 +39,11 @@ return [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
     ],
 
+    // node-worker's own MAX_CONCURRENT_SESSIONS (cita-watcher-docker/.env / docker-compose.yml)
+    // lives in a completely separate .env — there's no automatic single source of truth across
+    // the two services, so keep this in sync by hand if node-worker's limit ever changes.
+    'node_worker' => [
+        'max_concurrent_sessions' => (int) env('NODE_WORKER_MAX_CONCURRENT_SESSIONS', 3),
+    ],
+
 ];

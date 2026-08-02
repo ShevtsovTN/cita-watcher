@@ -28,4 +28,11 @@ interface WatchTaskRepositoryInterface
      * @return list<WatchTask>
      */
     public function findByUserId(int $userId): array;
+
+    /**
+     * Count of WatchTasks currently RUNNING — a dispatched check with no result back yet. Backs
+     * the Phase 8 concurrency guard (FindWatchTasksDueForCheckUseCase) against node-worker's own
+     * maxConcurrentSessions limit.
+     */
+    public function countRunning(): int;
 }

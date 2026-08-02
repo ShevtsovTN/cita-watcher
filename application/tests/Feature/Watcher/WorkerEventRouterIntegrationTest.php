@@ -110,12 +110,36 @@ final class WorkerEventRouterIntegrationTest extends TestCase
         $router->route(json_encode([
             'type' => 'check_failed',
             'watchTaskId' => $watchTask->id(),
-            'reason' => 'site unreachable',
+            'reason' => 'invalid procedure',
+            'retryable' => false,
             'occurredAt' => '2026-08-05T09:00:00+00:00',
         ], JSON_THROW_ON_ERROR));
 
         $this->assertSame(WatchTaskStatusEnum::FAILED, $repository->find($watchTask->id())->status());
-        Event::assertDispatched(CheckFailedEvent::class, fn(CheckFailedEvent $event): bool => 'site unreachable' === $event->reason);
+        Event::assertDispatched(CheckFailedEvent::class, fn(CheckFailedEvent $event): bool => 'invalid procedure' === $event->reason);
+    }
+
+    public function test_a_retryable_check_failed_sends_the_task_back_to_pending(): void
+    {
+        Event::fake();
+
+        $repository = $this->app->make(WatchTaskRepositoryInterface::class);
+        $watchTask = $repository->save($this->makeWatchTask());
+        $watchTask->start();
+        $repository->save($watchTask);
+
+        $router = $this->app->make(WorkerEventRouter::class);
+
+        $router->route(json_encode([
+            'type' => 'check_failed',
+            'watchTaskId' => $watchTask->id(),
+            'reason' => 'navigation timeout',
+            'retryable' => true,
+            'occurredAt' => '2026-08-05T09:00:00+00:00',
+        ], JSON_THROW_ON_ERROR));
+
+        $this->assertSame(WatchTaskStatusEnum::PENDING, $repository->find($watchTask->id())->status());
+        Event::assertDispatched(CheckFailedEvent::class, fn(CheckFailedEvent $event): bool => $event->retryable);
     }
 
     private function makeWatchTask(): WatchTask

@@ -70,6 +70,13 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
             ->all();
     }
 
+    public function countRunning(): int
+    {
+        return WatchTaskModel::query()
+            ->where('status', WatchTaskStatusEnum::RUNNING)
+            ->count();
+    }
+
     private function toDomain(WatchTaskModel $model): WatchTask
     {
         return new WatchTask(

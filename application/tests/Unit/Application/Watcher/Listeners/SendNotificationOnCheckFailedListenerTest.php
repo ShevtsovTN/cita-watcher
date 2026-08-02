@@ -31,7 +31,7 @@ final class SendNotificationOnCheckFailedListenerTest extends TestCase
     {
         $watchTask = $this->makeWatchTask();
 
-        $event = new CheckFailedEvent(watchTaskId: 42, reason: 'site unreachable', occurredAt: new DateTimeImmutable());
+        $event = new CheckFailedEvent(watchTaskId: 42, reason: 'site unreachable', retryable: false, occurredAt: new DateTimeImmutable());
 
         $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
         $repository->shouldReceive('find')->once()->with(42)->andReturn($watchTask);
@@ -60,10 +60,25 @@ final class SendNotificationOnCheckFailedListenerTest extends TestCase
 
     public function test_it_does_nothing_when_the_watch_task_no_longer_exists(): void
     {
-        $event = new CheckFailedEvent(watchTaskId: 99, reason: 'boom', occurredAt: new DateTimeImmutable());
+        $event = new CheckFailedEvent(watchTaskId: 99, reason: 'boom', retryable: false, occurredAt: new DateTimeImmutable());
 
         $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
         $repository->shouldReceive('find')->once()->with(99)->andReturn(null);
+
+        $resolver = Mockery::mock(NotificationChannelResolverInterface::class);
+        $resolver->shouldNotReceive('resolve');
+
+        $listener = new SendNotificationOnCheckFailedListener($repository, new SendNotificationUseCase($resolver));
+
+        $listener->handle($event);
+    }
+
+    public function test_it_does_nothing_when_the_failure_is_retryable(): void
+    {
+        $event = new CheckFailedEvent(watchTaskId: 42, reason: 'navigation timeout', retryable: true, occurredAt: new DateTimeImmutable());
+
+        $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
+        $repository->shouldNotReceive('find');
 
         $resolver = Mockery::mock(NotificationChannelResolverInterface::class);
         $resolver->shouldNotReceive('resolve');

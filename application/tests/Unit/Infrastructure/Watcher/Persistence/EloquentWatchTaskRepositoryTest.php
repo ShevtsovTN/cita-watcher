@@ -121,6 +121,20 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
         $this->assertSame($owned->id(), $found[0]->id());
     }
 
+    public function test_count_running_counts_only_running_watch_tasks(): void
+    {
+        $user = User::factory()->create();
+        $repository = $this->app->make(EloquentWatchTaskRepository::class);
+
+        $repository->save($this->makeWatchTask($user->id));
+
+        $running = $repository->save($this->makeWatchTask($user->id));
+        $running->start();
+        $repository->save($running);
+
+        $this->assertSame(1, $repository->countRunning());
+    }
+
     public function test_delete_removes_the_watch_task(): void
     {
         $user = User::factory()->create();

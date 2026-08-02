@@ -11,6 +11,7 @@ final readonly class CheckFailedEvent
     public function __construct(
         public int $watchTaskId,
         public string $reason,
+        public bool $retryable,
         public DateTimeImmutable $occurredAt,
     ) {}
 }

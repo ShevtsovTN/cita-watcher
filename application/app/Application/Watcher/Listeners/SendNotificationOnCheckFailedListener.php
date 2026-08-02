@@ -14,6 +14,9 @@ use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
 /**
  * Reacts to CheckFailedEvent by letting the user know their watch stopped, through the WatchTask's
  * configured channel — same cross-context enum translation as SendNotificationOnSlotsFoundListener.
+ * Skips retryable failures: HandleCheckFailedUseCase already sent the WatchTask back to PENDING
+ * for another attempt, so notifying here would just spam the user for every transient blip that's
+ * likely to resolve itself on the next scheduled check.
  */
 final readonly class SendNotificationOnCheckFailedListener
 {
@@ -24,6 +27,10 @@ final readonly class SendNotificationOnCheckFailedListener
 
     public function handle(CheckFailedEvent $event): void
     {
+        if ($event->retryable) {
+            return;
+        }
+
         $watchTask = $this->watchTaskRepository->find($event->watchTaskId);
 
         if (null === $watchTask) {

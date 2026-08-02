@@ -31,7 +31,13 @@ final class WorkerCommandTest extends TestCase
 
         $command = WorkerCommand::forAvailabilityCheck($watchTask);
 
+        $this->assertMatchesRegularExpression(
+            '/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/',
+            $command->commandId,
+        );
+
         $this->assertSame([
+            'commandId' => $command->commandId,
             'type' => 'check_availability',
             'watchTaskId' => 42,
             'procedure' => [
@@ -45,5 +51,22 @@ final class WorkerCommandTest extends TestCase
                 'phone' => '600123456',
             ],
         ], $command->toArray());
+    }
+
+    public function test_each_command_gets_a_unique_command_id(): void
+    {
+        $watchTask = new WatchTask(
+            id: 42,
+            userId: 7,
+            procedure: new Procedure(province: 'Madrid', tramiteCode: 'CITA_DNI'),
+            applicantData: new ApplicantData(fullName: 'Juan Pérez', documentId: '12345678A', email: 'juan@example.com'),
+            notificationChannel: WatchTaskNotificationChannelEnum::TELEGRAM,
+            notificationTarget: '123456789',
+        );
+
+        $first = WorkerCommand::forAvailabilityCheck($watchTask);
+        $second = WorkerCommand::forAvailabilityCheck($watchTask);
+
+        $this->assertNotSame($first->commandId, $second->commandId);
     }
 }

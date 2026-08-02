@@ -105,6 +105,17 @@ final class WatchTask
     }
 
     /**
+     * A check failed for a retryable reason (e.g. a transient network/site error, per
+     * CheckFailedEvent::$retryable) — go back to PENDING for another attempt, same transition as
+     * recheck() but a distinct method because the domain reason differs: this is "the attempt
+     * itself failed," not "the attempt succeeded and found nothing."
+     */
+    public function retry(): void
+    {
+        $this->transitionTo(WatchTaskStatusEnum::PENDING, from: [WatchTaskStatusEnum::RUNNING]);
+    }
+
+    /**
      * @param list<WatchTaskStatusEnum> $from
      */
     private function transitionTo(WatchTaskStatusEnum $to, array $from): void

@@ -66,7 +66,14 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   `CreateWatchTaskRequest` validates input; `WatchTaskResource` formats responses (omitting
   `documentId`). Domain exceptions are mapped to HTTP statuses in `bootstrap/app.php`. All with
   tests — see the Phase 7 notes below.
-- Phase 0 through Phase 7 (below) are complete.
+- `WatchTask::retry()` (RUNNING → PENDING, retryable check failures — distinct from `recheck()`),
+  `CheckFailedEvent::$retryable`, `WatchTaskRepositoryInterface::countRunning()`, and
+  `Application\Watcher\UseCases\FindWatchTasksDueForCheckUseCase` (the `maxConcurrentSessions`
+  guard, `services.node_worker.max_concurrent_sessions`). `RedisWorkerGateway`,
+  `DispatchAvailabilityCheckJob`, and `ConsumeWatcherEventsCommand` now log with
+  `watch_task_id`/`command_id` context; `WorkerCommand` carries a `commandId` UUID. See the Phase 8
+  notes below.
+- Phase 0 through Phase 8 (below) are complete — only Phase 9 (integration verification) remains.
 - `User`, the base `Controller`, `WatchTaskController`, and the Phase 4/5 jobs/console commands are
   the Presentation layer so far.
 
@@ -417,16 +424,62 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
 - **`routes/api.php` needed adding to `bootstrap/app.php`'s `withRouting()`** — only `web` and
   `commands` were registered before this phase; there was no API route file at all.
 
-## Phase 8 — Hardening & observability
+## Phase 8 — Hardening & observability ✅ done
 
-- [ ] Structured logging correlated by `WatchTask` id / command id, mirroring the correlation
+- [x] Structured logging correlated by `WatchTask` id / command id, mirroring the correlation
       approach `../docs/NODE_WORKER_ROADMAP.md` Phase 5 plans on the node-worker side.
-- [ ] Retry/backoff policy for `CheckFailedEvent` handling — decide what "retryable" means at the
+      `RedisWorkerGateway` logs `watch_task_id`/`command_id` context on dispatch;
+      `DispatchAvailabilityCheckJob` seeds `watch_task_id` context before invoking the use case;
+      `ConsumeWatcherEventsCommand::handleMessage()` reads `watchTaskId`/`commandId` (if present)
+      off the raw inbound payload and attaches them as context before routing. See the notes below
+      for why `commandId` is log-correlation only, not a verified round-trip.
+- [x] Retry/backoff policy for `CheckFailedEvent` handling — decide what "retryable" means at the
       `WatchTask` level (note `DeliveryStatusEnum::isRetryable()` already models this pattern for
-      notifications; reuse the shape for check failures).
-- [ ] Rate limiting / concurrency guard so the number of in-flight `WatchTask` checks doesn't
-      exceed node-worker's `maxConcurrentSessions`.
-- [ ] `composer test` and `./vendor/bin/pint --test` clean across the whole phase's new code.
+      notifications; reuse the shape for check failures). node-worker decides and sends a
+      `retryable: bool` field on the `check_failed` event; `HandleCheckFailedUseCase` calls the new
+      `WatchTask::retry()` (RUNNING → PENDING) when retryable, `WatchTask::fail()` (terminal)
+      otherwise. `SendNotificationOnCheckFailedListener` skips retryable failures — see notes below.
+- [x] Rate limiting / concurrency guard so the number of in-flight `WatchTask` checks doesn't
+      exceed node-worker's `maxConcurrentSessions`. New
+      `Application\Watcher\UseCases\FindWatchTasksDueForCheckUseCase` caps `findPending()` to
+      `max(0, maxConcurrentSessions - countRunning())`; `DispatchDueAvailabilityChecksCommand` now
+      calls it instead of `findPending()` directly. `maxConcurrentSessions` comes from
+      `services.node_worker.max_concurrent_sessions` (`NODE_WORKER_MAX_CONCURRENT_SESSIONS`,
+      default 3 — must be kept in sync by hand with node-worker's own `MAX_CONCURRENT_SESSIONS`,
+      since the two run off separate `.env` files with no shared source of truth).
+- [x] `composer test` and `./vendor/bin/pint --test` clean across the whole phase's new code. 143
+      tests passing; `pint` clean.
+
+**Changes not in the original checklist:**
+- **New `WatchTask::retry()` transition**, structurally identical to `recheck()` (RUNNING →
+  PENDING) but named separately on purpose — same reasoning as Phase 5's `recheck()` vs. `resume()`
+  split: the domain *reason* differs ("the attempt itself failed" vs. "the attempt succeeded and
+  found nothing"), and that distinction is worth a name even though the transition is a one-liner.
+- **`CheckFailedEvent` gained a `retryable: bool` field**, and `HandleCheckFailedUseCase`'s
+  signature changed to `execute(int $watchTaskId, string $reason, bool $retryable, DateTimeImmutable $occurredAt)`.
+  `CheckFailedEvent` is still raised on every failure, retryable or not — it's
+  `SendNotificationOnCheckFailedListener` that decides whether a retryable (soon-to-retry) failure
+  is worth notifying about, not the use case. This keeps the "raise the event, let listeners decide
+  what to do" shape from Phase 5 intact rather than branching notification logic into the use case.
+- **New `WatchTaskRepositoryInterface::countRunning()`** — the concurrency guard's only new query
+  need; `FindWatchTasksDueForCheckUseCase` is the sole caller.
+- **`RedisWorkerGateway` and `DispatchAvailabilityCheckJob` now inject `Illuminate\Log\LogManager`**
+  via the constructor/`handle()` rather than using the `Log` facade, unlike
+  `ConsumeWatcherEventsCommand` (which keeps the facade, since Presentation-layer facade use was
+  already established in Phase 5). `RedisWorkerGatewayTest` is a pure `PHPUnit\TestCase` with no
+  Laravel bootstrap (consistent with the rest of `Infrastructure/Watcher/Messaging`'s unit tests) —
+  the static facade would have needed a booted container just for this one call, so the DI-injected
+  `LogManager` (mockable like `RedisFactory`/`Encrypter` already are elsewhere in this layer) was
+  the smaller, more consistent change.
+- **`WorkerCommand` gained a `commandId` (UUID, via `Str::uuid()`)** — generated fresh per command,
+  logged for correlation, never persisted or matched against anything on the way back in. A real
+  round-trip verification (rejecting a stale/duplicate response, tracking "last dispatched command
+  id" on `WatchTask`) would be a materially bigger change and wasn't what this checklist line asked
+  for; revisit if node-worker's eventual messaging module makes staleness a real problem.
+- **Inbound event payloads may now carry an optional `commandId`**, read defensively
+  (`$data['commandId'] ?? null`) in `ConsumeWatcherEventsCommand::handleMessage()` — not required,
+  since node-worker's messaging module (`../docs/NODE_WORKER_ROADMAP.md` Phase 3) still doesn't
+  exist to confirm it'll actually send one back.
 
 ## Phase 9 — Integration verification
 

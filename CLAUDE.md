@@ -20,24 +20,27 @@ The repo is a monorepo with three independent parts, each with its own toolchain
   everything together for local/dev/prod runs. See `cita-watcher-docker/CLAUDE.md`.
 
 **Project stage:** on the Laravel side, `Domain/Watcher`, `Infrastructure/Watcher`,
-`Application/Watcher`, and `Presentation` are fully implemented through Phase 7 of
+`Application/Watcher`, and `Presentation` are fully implemented through Phase 8 of
 `docs/APPLICATION_ROADMAP.md`: outbound command dispatch to node-worker (Phase 4 —
 `RedisWorkerGateway`, `DispatchAvailabilityCheckJob`, the scheduled `watcher:dispatch-due-checks`
 command), inbound event consumption from node-worker (Phase 5 — the `watcher:consume-events`
 artisan command, `WorkerEventRouter`, and the `HandleCheckCompletedUseCase`/
 `HandleCaptchaRequiredUseCase`/`HandleCheckFailedUseCase` use cases), applicant data encryption at
 rest (Phase 6 — `ApplicantDataEncryptorInterface` → `LaravelApplicantDataEncryptor`;
-`watch_tasks.applicant_data` is one `APP_KEY`-encrypted column, not plain per-field columns), and a
+`watch_tasks.applicant_data` is one `APP_KEY`-encrypted column, not plain per-field columns), a
 `WatchTask` HTTP API (Phase 7 — `WatchTaskController` under `routes/api.php`, protected by
 `laravel/sanctum`; token-only, no login/registration endpoint exists — tokens are issued
-operationally via `php artisan tinker`) all now exist and are wired up in `docker-compose.yml`.
-Only Phase 8 (hardening/observability) and Phase 9 (integration verification) remain on the Laravel
-roadmap. `node-worker/src/index.ts` is still an empty stub — its
-`messaging/` module (Phase 3 of `docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so **neither**
-side of the Redis contract (`WorkerCommand` outbound, the `watcher-events` payloads inbound) is
-confirmed against a real node-worker implementation yet, only against each other's roadmap notes.
-Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before
-assuming a later phase's piece exists.
+operationally via `php artisan tinker`), and hardening/observability (Phase 8 — retryable vs.
+terminal `CheckFailedEvent` handling via `WatchTask::retry()`, a `maxConcurrentSessions` dispatch
+guard, `watch_task_id`/`command_id` log correlation) all now exist and are wired up in
+`docker-compose.yml`. Only Phase 9 (integration verification) remains on the Laravel roadmap.
+`node-worker/src/index.ts` is still an empty stub — its `messaging/` module (Phase 3 of
+`docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so **neither** side of the Redis contract
+(`WorkerCommand` outbound — now including a `commandId` — the `watcher-events` payloads inbound —
+now including `check_failed`'s `retryable`) is confirmed against a real node-worker implementation
+yet, only against each other's roadmap notes. Check the relevant roadmap
+(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
+piece exists.
 
 ## Cross-service architecture
 

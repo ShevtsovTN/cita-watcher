@@ -47,8 +47,19 @@ final class ConsumeWatcherEventsCommand extends Command
      */
     public function handleMessage(string $payload, WorkerEventRouter $router): void
     {
+        $data = json_decode($payload, true) ?: [];
+
+        // Correlation only (Phase 8) — commandId isn't part of every inbound event yet (node-worker's
+        // messaging module doesn't exist to confirm the contract), so it's read defensively.
+        Log::withContext([
+            'watch_task_id' => $data['watchTaskId'] ?? null,
+            'command_id' => $data['commandId'] ?? null,
+        ]);
+
         try {
             $router->route($payload);
+
+            Log::info('Handled a worker event.', ['type' => $data['type'] ?? null]);
         } catch (Throwable $exception) {
             Log::error('watcher:consume-events failed to handle a message', [
                 'exception' => $exception,

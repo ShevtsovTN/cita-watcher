@@ -8,6 +8,7 @@ use App\Application\Watcher\UseCases\DispatchAvailabilityCheckUseCase;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Log\LogManager;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
@@ -34,8 +35,10 @@ final class DispatchAvailabilityCheckJob implements ShouldQueue
         $this->onQueue(self::QUEUE);
     }
 
-    public function handle(DispatchAvailabilityCheckUseCase $useCase): void
+    public function handle(DispatchAvailabilityCheckUseCase $useCase, LogManager $log): void
     {
+        $log->withContext(['watch_task_id' => $this->watchTaskId]);
+
         $useCase->execute($this->watchTaskId);
     }
 }

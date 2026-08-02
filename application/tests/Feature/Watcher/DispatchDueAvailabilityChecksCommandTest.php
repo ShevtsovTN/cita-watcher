@@ -37,6 +37,29 @@ final class DispatchDueAvailabilityChecksCommandTest extends TestCase
         Queue::assertPushed(fn(DispatchAvailabilityCheckJob $job): bool => $job->watchTaskId === $pending->id());
     }
 
+    public function test_it_caps_dispatch_at_the_configured_concurrency_limit(): void
+    {
+        config(['services.node_worker.max_concurrent_sessions' => 2]);
+        Queue::fake();
+
+        $user = User::factory()->create();
+        $repository = $this->app->make(WatchTaskRepositoryInterface::class);
+
+        $running = $repository->save($this->makeWatchTask($user->id));
+        $running->start();
+        $repository->save($running);
+
+        $repository->save($this->makeWatchTask($user->id));
+        $repository->save($this->makeWatchTask($user->id));
+        $repository->save($this->makeWatchTask($user->id));
+
+        $this->artisan('watcher:dispatch-due-checks')->assertExitCode(0);
+
+        // 1 already RUNNING against a limit of 2 leaves room for exactly 1 more dispatch, even
+        // though 3 WatchTasks are PENDING.
+        Queue::assertPushed(DispatchAvailabilityCheckJob::class, 1);
+    }
+
     private function makeWatchTask(int $userId): WatchTask
     {
         return new WatchTask(

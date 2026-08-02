@@ -8,18 +8,20 @@ See the repo-root `CLAUDE.md` for the overall monorepo/cross-service picture.
 Laravel 13 (PHP 8.4) app: orchestrates watch tasks, persists state, dispatches commands to the
 node-worker, and (eventually) consumes result events back from it.
 
-**Project stage:** `Domain/Watcher`, `Infrastructure/Watcher`, `Application/Watcher`, and now
-`Presentation` are fully implemented through Phase 7 — outbound command dispatch to node-worker
+**Project stage:** `Domain/Watcher`, `Infrastructure/Watcher`, `Application/Watcher`, and
+`Presentation` are fully implemented through Phase 8 — outbound command dispatch to node-worker
 (Phase 4: `RedisWorkerGateway`, `DispatchAvailabilityCheckJob`, `watcher:dispatch-due-checks`),
 inbound event consumption from node-worker (Phase 5: `watcher:consume-events`, `WorkerEventRouter`,
 the three `Handle*UseCase`s), applicant data encryption at rest (Phase 6:
 `ApplicantDataEncryptorInterface` → `LaravelApplicantDataEncryptor`; `watch_tasks.applicant_data` is
-one ciphertext column), and a `WatchTask` HTTP API (Phase 7: `WatchTaskController` under
+one ciphertext column), a `WatchTask` HTTP API (Phase 7: `WatchTaskController` under
 `routes/api.php`, protected by `laravel/sanctum` — token-only, no login/registration endpoint
-exists anywhere in the app, tokens are issued operationally via tinker) — see
-`../docs/APPLICATION_ROADMAP.md` Phases 1–7 for what exists and their tests. Nothing left on this
-roadmap except Phase 8 (hardening/observability) and Phase 9 (integration verification). Check the
-roadmap before assuming a later phase's piece exists.
+exists anywhere in the app, tokens are issued operationally via tinker), and hardening/observability
+(Phase 8: `WatchTask::retry()`/`CheckFailedEvent::$retryable` retry-vs-terminal split,
+`FindWatchTasksDueForCheckUseCase`'s `maxConcurrentSessions` guard, `watch_task_id`/`command_id`
+log correlation) — see `../docs/APPLICATION_ROADMAP.md` Phases 1–8 for what exists and their
+tests. Only Phase 9 (integration verification) remains on this roadmap. Check the roadmap before
+assuming a later phase's piece exists.
 
 ## Architecture principles (apply to all new business logic)
 

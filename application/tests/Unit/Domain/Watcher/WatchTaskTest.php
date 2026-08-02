@@ -149,6 +149,25 @@ final class WatchTaskTest extends TestCase
         $watchTask->recheck();
     }
 
+    public function test_retry_transitions_from_running_to_pending(): void
+    {
+        $watchTask = $this->makeWatchTask();
+        $watchTask->start();
+
+        $watchTask->retry();
+
+        $this->assertSame(WatchTaskStatusEnum::PENDING, $watchTask->status());
+    }
+
+    public function test_retry_from_a_non_running_status_throws(): void
+    {
+        $watchTask = $this->makeWatchTask();
+
+        $this->expectException(InvalidWatchTaskTransitionException::class);
+
+        $watchTask->retry();
+    }
+
     private function makeWatchTask(?string $notificationTarget = null): WatchTask
     {
         return new WatchTask(

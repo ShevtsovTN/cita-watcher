@@ -32,6 +32,11 @@ the services talk to each other. Summary:
 - **node-worker** is Playwright + the CDP screencast relay; it owns real browser sessions and does
   the actual site automation.
 - **redis** carries both the command queue and the event pub/sub between Laravel and node-worker.
+  Both are prefixed by Laravel's redis client config (`config('database.redis.options.prefix')`,
+  default `Str::slug(APP_NAME)-database-`) — with this repo's default `application/.env` the real
+  key/channel names are `laravel-database-watcher-commands`/`laravel-database-watcher-events`, not
+  the bare `watcher-commands`/`watcher-events` names used elsewhere as shorthand. Confirmed via
+  `redis-cli PUBSUB CHANNELS` — see `../docs/PHASE9_DRY_RUN.md`.
 - **db** is Postgres, holding watch tasks, logs, and encrypted applicant data.
 
 ## Env files
@@ -52,6 +57,13 @@ docker compose -f cita-watcher-docker/docker-compose.yml up -d
 ```
 
 Requires `cita-watcher-docker/.env` with at least `DB_PASSWORD` set (compose fails fast otherwise).
+
+**After changing a service's `command:` or `environment:` in `docker-compose.yml`, re-run `up -d`,
+not `restart`.** `restart` reuses a container's original startup config and silently does *not*
+pick up compose-file changes — `event-consumer` ran as bare `php-fpm` instead of
+`watcher:consume-events` for an entire roadmap phase because of exactly this (see
+`../docs/PHASE9_DRY_RUN.md`). `up -d` recreates only the containers whose effective config
+actually changed.
 
 ## Mounts and users
 

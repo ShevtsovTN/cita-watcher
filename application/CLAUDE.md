@@ -20,7 +20,12 @@ exists anywhere in the app, tokens are issued operationally via tinker), and har
 (Phase 8: `WatchTask::retry()`/`CheckFailedEvent::$retryable` retry-vs-terminal split,
 `FindWatchTasksDueForCheckUseCase`'s `maxConcurrentSessions` guard, `watch_task_id`/`command_id`
 log correlation) — see `../docs/APPLICATION_ROADMAP.md` Phases 1–8 for what exists and their
-tests. Only Phase 9 (integration verification) remains on this roadmap. Check the roadmap before
+tests. Phase 9 (integration verification) is partially done: the outbound/inbound flow was
+dry-run through a live `docker compose` stack with node-worker simulated by hand via `redis-cli`
+(node-worker itself doesn't exist yet) — see `../docs/PHASE9_DRY_RUN.md` for the runbook and two
+real dev-stack bugs it found and fixed (`QUEUE_CONNECTION`, a stale `event-consumer` container).
+The manual captcha-solving walkthrough is genuinely blocked, not just deferred — it needs
+node-worker's CDP relay and an undesigned UI, neither of which exist. Check the roadmap before
 assuming a later phase's piece exists.
 
 ## Architecture principles (apply to all new business logic)

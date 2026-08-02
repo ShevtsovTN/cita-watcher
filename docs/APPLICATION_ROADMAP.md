@@ -1,8 +1,8 @@
 # application (Laravel) Roadmap
 
-Status: planning. This document sequences the work needed to take `../application` from its
-current early scaffold to a complete Laravel side of Cita Watcher, as described in the root
-`../CLAUDE.md` and `../application/CLAUDE.md`.
+Status: Phases 0–8 done, Phase 9 partially done (blocked where noted). This document sequences the
+work needed to take `../application` from its original early scaffold to a complete Laravel side
+of Cita Watcher, as described in the root `../CLAUDE.md` and `../application/CLAUDE.md`.
 
 **Already in place** (so later phases don't re-derive it):
 
@@ -73,7 +73,8 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   `DispatchAvailabilityCheckJob`, and `ConsumeWatcherEventsCommand` now log with
   `watch_task_id`/`command_id` context; `WorkerCommand` carries a `commandId` UUID. See the Phase 8
   notes below.
-- Phase 0 through Phase 8 (below) are complete — only Phase 9 (integration verification) remains.
+- Phase 0 through Phase 8 (below) are complete. Phase 9 (integration verification) is partially
+  done — see its notes for what's genuinely blocked vs. what was verified via `../docs/PHASE9_DRY_RUN.md`.
 - `User`, the base `Controller`, `WatchTaskController`, and the Phase 4/5 jobs/console commands are
   the Presentation layer so far.
 
@@ -481,13 +482,45 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   since node-worker's messaging module (`../docs/NODE_WORKER_ROADMAP.md` Phase 3) still doesn't
   exist to confirm it'll actually send one back.
 
-## Phase 9 — Integration verification
+## Phase 9 — Integration verification ⚠️ partially done — see notes
 
-- [ ] End-to-end dry run through `docker compose -f cita-watcher-docker/docker-compose.yml up -d`:
+- [x] End-to-end dry run through `docker compose -f cita-watcher-docker/docker-compose.yml up -d`:
       create a `WatchTask` via HTTP → `queue-worker` dispatches to node-worker → `event-consumer`
-      receives the result → notification is sent.
+      receives the result → notification is sent. Done **with node-worker simulated by hand via
+      `redis-cli`** (it doesn't exist yet — see `../docs/NODE_WORKER_ROADMAP.md`); every other hop
+      is real. Full runbook, commands, and observed output: `../docs/PHASE9_DRY_RUN.md`. Re-run it
+      once node-worker's messaging module actually exists.
 - [ ] Manual captcha-solving walkthrough confirming a `CaptchaRequired` event correctly surfaces
       to whatever UI/notification path is meant to alert a human (scope TBD — not yet designed).
+      **Not done, not attempted — genuinely blocked**, not merely deferred: it needs node-worker's
+      `captcha/` CDP relay (`../docs/NODE_WORKER_ROADMAP.md` Phase 2, not built) and a human-facing
+      UI for the screencast, which the root `../CLAUDE.md` non-goals explicitly place out of scope
+      for the Laravel side. Nothing to check off here until both exist.
+
+**Findings from the dry run (not in the original checklist):**
+- **Two real bugs in the live dev stack, found and fixed while running this**, independent of
+  node-worker's absence:
+  1. `application/.env` had `QUEUE_CONNECTION=database` while `queue-worker` explicitly runs
+     `queue:work redis --queue=watcher-commands` — every dispatched job was silently stranded in
+     the `jobs` Postgres table, never picked up. Fixed: `QUEUE_CONNECTION=redis`.
+  2. `event-consumer` had been running as bare `php-fpm`, not `watcher:consume-events`, since
+     Phase 5 — its `docker-compose.yml` `command:` override was uncommented back then, but the
+     already-running container was only ever `docker compose restart`ed afterwards, which reuses a
+     container's original startup config rather than applying compose-file changes. Fixed:
+     `docker compose up -d` (which recreates containers whose config changed; `restart` doesn't).
+     **General lesson:** after changing a service's `command:`/`environment:` in `docker-compose.yml`,
+     use `up -d`, not `restart`, to actually apply it.
+- **Redis keys/channels are prefixed** (`config('database.redis.options.prefix')`, default
+  `Str::slug(APP_NAME)-database-`) — the physical names this dev stack actually uses are
+  `laravel-database-watcher-commands` and `laravel-database-watcher-events`, not the bare
+  `watcher-commands`/`watcher-events` used throughout the code/docs as the *logical* names. This
+  wasn't written down anywhere before this dry run; node-worker's eventual ioredis client will need
+  to know the real prefixed names (or `REDIS_PREFIX` needs to be set to empty). Added to
+  `../docs/NODE_WORKER_ROADMAP.md` Phase 3.
+- `check_failed` (both `retryable` values) and `captcha_required` weren't re-verified live — already
+  covered end-to-end against a real DB and the real Illuminate event dispatcher by
+  `WorkerEventRouterIntegrationTest`/`HandleCheckFailedUseCaseTest`, so repeating them by hand in a
+  live stack wouldn't have found anything the automated tests couldn't.
 
 ## Explicit non-goals for this roadmap
 

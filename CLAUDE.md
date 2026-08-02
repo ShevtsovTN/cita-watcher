@@ -33,14 +33,17 @@ rest (Phase 6 — `ApplicantDataEncryptorInterface` → `LaravelApplicantDataEnc
 operationally via `php artisan tinker`), and hardening/observability (Phase 8 — retryable vs.
 terminal `CheckFailedEvent` handling via `WatchTask::retry()`, a `maxConcurrentSessions` dispatch
 guard, `watch_task_id`/`command_id` log correlation) all now exist and are wired up in
-`docker-compose.yml`. Only Phase 9 (integration verification) remains on the Laravel roadmap.
-`node-worker/src/index.ts` is still an empty stub — its `messaging/` module (Phase 3 of
-`docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so **neither** side of the Redis contract
-(`WorkerCommand` outbound — now including a `commandId` — the `watcher-events` payloads inbound —
-now including `check_failed`'s `retryable`) is confirmed against a real node-worker implementation
-yet, only against each other's roadmap notes. Check the relevant roadmap
-(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
-piece exists.
+`docker-compose.yml`. Phase 9 (integration verification) is partially done: the outbound/inbound
+flow was dry-run through a live stack with node-worker simulated by hand via `redis-cli` — see
+`docs/PHASE9_DRY_RUN.md`, including two real dev-stack bugs that dry run found and fixed. The
+manual captcha-solving walkthrough is genuinely blocked (needs node-worker's CDP relay and an
+undesigned UI), not just deferred. `node-worker/src/index.ts` is still an empty stub — its
+`messaging/` module (Phase 3 of `docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so **neither**
+side of the Redis contract (`WorkerCommand` outbound — now including a `commandId` — the
+`watcher-events` payloads inbound — now including `check_failed`'s `retryable`) is confirmed
+against a real node-worker implementation yet, only against each other's roadmap notes and the dry
+run's manual simulation. Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`,
+`docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's piece exists.
 
 ## Cross-service architecture
 
@@ -62,6 +65,11 @@ authoritative description of how the services talk to each other. Summary:
 - **node-worker** is Playwright + the CDP screencast relay; it owns real browser sessions and does
   the actual site automation.
 - **redis** carries both the command queue and the event pub/sub between Laravel and node-worker.
+  Both are Redis-client-prefixed (`config('database.redis.options.prefix')`, default
+  `Str::slug(APP_NAME)-database-`) — the physical key/channel names are `laravel-database-watcher-commands`/
+  `laravel-database-watcher-events` with this repo's default `.env`, not the bare
+  `watcher-commands`/`watcher-events` used as their logical names throughout the code and docs. See
+  `docs/PHASE9_DRY_RUN.md`.
 - **db** is Postgres, holding watch tasks, logs, and encrypted applicant data.
 
 Two separate `.env` files exist and are not interchangeable:

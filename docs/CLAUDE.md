@@ -15,6 +15,11 @@ described in the root `CLAUDE.md` toward a complete implementation.
   Watcher domain/persistence/application layers, node-worker command dispatch, the not-yet-built
   `event-consumer`, applicant data encryption, presentation layer, hardening, integration
   verification).
+- `PHASE9_DRY_RUN.md` — runbook for `APPLICATION_ROADMAP.md` Phase 9's live `docker compose`
+  verification: exact commands, a `redis-cli`-based stand-in for node-worker (which doesn't exist
+  yet), and real findings from running it (two live-stack bugs it caught, and that Redis
+  keys/channels are prefixed — see that file before assuming `watcher-commands`/`watcher-events`
+  are the literal Redis key/channel names).
 
 ## Conventions for roadmap docs
 

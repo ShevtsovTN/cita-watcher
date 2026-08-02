@@ -41,7 +41,7 @@ final class SendNotificationOnSlotsFoundListenerTest extends TestCase
         $channel = Mockery::mock(NotificationChannelInterface::class);
         $channel->shouldReceive('send')
             ->once()
-            ->with('123456789', Mockery::on(fn (NotificationMessage $message): bool => str_contains($message->text, 'Madrid Office')))
+            ->with('123456789', Mockery::on(fn(NotificationMessage $message): bool => str_contains($message->text, 'Madrid Office')))
             ->andReturn(new NotificationDeliveryReport(channel: 'telegram', target: '123456789', status: DeliveryStatusEnum::DELIVERED));
 
         $resolver = Mockery::mock(NotificationChannelResolverInterface::class);

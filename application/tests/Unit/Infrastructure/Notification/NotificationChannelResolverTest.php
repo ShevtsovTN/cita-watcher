@@ -38,7 +38,7 @@ final class NotificationChannelResolverTest extends TestCase
     private function makeResolver(): array
     {
         $mailChannel = new MailNotificationChannel(Mockery::mock(Mailer::class));
-        $telegramChannel = new TelegramNotificationChannel(new HttpFactory, 'test-bot-token');
+        $telegramChannel = new TelegramNotificationChannel(new HttpFactory(), 'test-bot-token');
 
         return [$mailChannel, $telegramChannel, new NotificationChannelResolver($mailChannel, $telegramChannel)];
     }

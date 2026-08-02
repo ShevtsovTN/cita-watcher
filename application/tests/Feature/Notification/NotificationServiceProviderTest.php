@@ -39,7 +39,7 @@ final class NotificationServiceProviderTest extends TestCase
         $channel->send('123456789', new NotificationMessage('Slots found'));
 
         Http::assertSent(function ($request): bool {
-            return $request->url() === 'https://api.telegram.org/bottest-bot-token/sendMessage';
+            return 'https://api.telegram.org/bottest-bot-token/sendMessage' === $request->url();
         });
     }
 

@@ -17,7 +17,7 @@ final readonly class DeleteWatchTaskUseCase
     {
         $watchTask = $this->repository->find($watchTaskId);
 
-        if ($watchTask === null) {
+        if (null === $watchTask) {
             throw WatchTaskNotFoundException::withId($watchTaskId);
         }
 

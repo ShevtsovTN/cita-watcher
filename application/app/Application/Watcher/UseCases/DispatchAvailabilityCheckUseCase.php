@@ -23,7 +23,7 @@ final readonly class DispatchAvailabilityCheckUseCase
     {
         $watchTask = $this->repository->find($watchTaskId);
 
-        if ($watchTask === null) {
+        if (null === $watchTask) {
             throw WatchTaskNotFoundException::withId($watchTaskId);
         }
 

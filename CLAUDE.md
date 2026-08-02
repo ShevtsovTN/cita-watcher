@@ -19,14 +19,18 @@ The repo is a monorepo with three independent parts, each with its own toolchain
 - `cita-watcher-docker/` — Dockerfiles, nginx config, and the `docker-compose.yml` that wires
   everything together for local/dev/prod runs. See `cita-watcher-docker/CLAUDE.md`.
 
-**Project stage:** on the Laravel side, `Domain/Watcher`, `Infrastructure/Watcher` (persistence),
-and `Application/Watcher` (use cases, the `WorkerGatewayInterface` port, the `SlotsFoundEvent`
-notification listener) are implemented — see `docs/APPLICATION_ROADMAP.md` Phases 1–3. Outbound
-Redis command dispatch to node-worker, the `event-consumer`, applicant data encryption, and any
-`Watcher` Presentation layer are still outstanding (Phases 4–7); only `User` and the base
-`Controller` exist as Presentation-layer pieces so far. `node-worker/src/index.ts` is still an
-empty stub; the `event-consumer` service and its `watcher:consume-events` artisan command don't
-exist yet (the line is commented out in `docker-compose.yml`). Check the relevant roadmap
+**Project stage:** on the Laravel side, `Domain/Watcher`, `Infrastructure/Watcher` (persistence and
+outbound Redis messaging), and `Application/Watcher` (use cases, the `WorkerGatewayInterface` port,
+the `SlotsFoundEvent` notification listener) are implemented, including the Phase 4 outbound
+command dispatch (`RedisWorkerGateway`, `DispatchAvailabilityCheckJob`, and its scheduled
+`watcher:dispatch-due-checks` command) — see `docs/APPLICATION_ROADMAP.md` Phases 1–4. The inbound
+`event-consumer`, applicant data encryption, and any `WatchTask` HTTP Presentation layer are still
+outstanding (Phases 5–7); only `User`, the base `Controller`, and the Phase 4 job/console command
+exist as Presentation-layer pieces so far. `node-worker/src/index.ts` is still an empty stub — its
+`messaging/` module (Phase 3 of `docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so the
+`WorkerCommand` payload shape `RedisWorkerGateway` publishes is not yet a confirmed contract; the
+`event-consumer` service and its `watcher:consume-events` artisan command also don't exist yet (the
+line is commented out in `docker-compose.yml`). Check the relevant roadmap
 (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
 piece exists.
 

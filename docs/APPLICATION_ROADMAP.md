@@ -36,9 +36,15 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   `SlotsFoundEvent` in `WatcherServiceProvider::boot()`), all with unit tests.
   `WatchTaskNotFoundException` (`Domain\Watcher\Exceptions`) backs the not-found path for the
   id-based use cases — see the Phase 3 note below.
-- Phase 0, Phase 1, Phase 2, and Phase 3 (below) are complete.
-- Only `User` and the base `Controller` exist as Presentation-layer pieces — no controllers,
-  messaging (Phase 4's `RedisWorkerGateway`), or presentation layer for `Watcher` yet.
+- `App\Infrastructure\Watcher\Messaging\{WorkerCommand,RedisWorkerGateway}` and
+  `App\Presentation\Jobs\DispatchAvailabilityCheckJob`, enqueued for every pending `WatchTask` by
+  `App\Presentation\Console\Commands\DispatchDueAvailabilityChecksCommand`
+  (`watcher:dispatch-due-checks`, scheduled `everyFiveMinutes()` in `routes/console.php`). Bound in
+  `WatcherServiceProvider`. All with tests — see the Phase 4 notes below, especially the
+  two-different-Redis-keys-with-the-same-name design.
+- Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 (below) are complete.
+- Only `User` and the base `Controller` exist as Presentation-layer HTTP pieces (plus the Phase 4
+  job/console command above) — no `WatchTask` controllers or the Phase 5 `event-consumer` yet.
 
 Every phase below follows the layering and DDD/SOLID conventions in `../application/CLAUDE.md` —
 new business capabilities get their own `Domain/<Context>`, `Application/<Context>`,
@@ -164,21 +170,63 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   mocking `SendNotificationUseCase` directly — it's `final`, and Mockery cannot mock final concrete
   classes.
 
-## Phase 4 — Outbound command dispatch to node-worker
+## Phase 4 — Outbound command dispatch to node-worker ✅ done
 
-- [ ] `RedisWorkerGateway implements WorkerGatewayInterface` in `Infrastructure/Watcher/Messaging`,
+- [x] `RedisWorkerGateway implements WorkerGatewayInterface` in `Infrastructure/Watcher/Messaging`,
       publishing to the `watcher-commands` Redis queue that `queue-worker`
       (`php artisan queue:work redis --queue=watcher-commands`) already consumes per
       `docker-compose.yml`.
-- [ ] Define the `WorkerCommand` payload shape — must match what `node-worker`'s
+- [x] Define the `WorkerCommand` payload shape — must match what `node-worker`'s
       `messaging/` module expects to deserialize (see `../docs/NODE_WORKER_ROADMAP.md` Phase 3;
-      coordinate the contract, don't assume it exists yet).
-- [ ] Queued job wrapping `DispatchAvailabilityCheckUseCase` (e.g. `DispatchAvailabilityCheckJob`,
+      coordinate the contract, don't assume it exists yet). Implemented as
+      `Infrastructure/Watcher/Messaging/WorkerCommand`, a `type`/`watchTaskId`/`procedure`/
+      `applicant` shape — not yet confirmed against node-worker since its messaging module doesn't
+      exist yet (see note below).
+- [x] Queued job wrapping `DispatchAvailabilityCheckUseCase` (e.g. `DispatchAvailabilityCheckJob`,
       per the `Job` suffix convention in `../application/CLAUDE.md`) so `schedule:work`
-      (the `scheduler` service) can enqueue periodic checks per `WatchTask`.
-- [ ] Bind `WorkerGatewayInterface` → `RedisWorkerGateway` in `Infrastructure/Providers`.
-- [ ] Tests against a fake/real Redis for the gateway; feature test for the scheduled dispatch
-      path.
+      (the `scheduler` service) can enqueue periodic checks per `WatchTask`. Implemented as
+      `Presentation/Jobs/DispatchAvailabilityCheckJob`, enqueued for every pending `WatchTask` by
+      the new `watcher:dispatch-due-checks` command (`Presentation/Console/Commands/DispatchDueAvailabilityChecksCommand`),
+      scheduled `everyFiveMinutes()` in `routes/console.php`.
+- [x] Bind `WorkerGatewayInterface` → `RedisWorkerGateway` in `Infrastructure/Providers`.
+- [x] Tests against a fake/real Redis for the gateway; feature test for the scheduled dispatch
+      path. `RedisWorkerGatewayTest` mocks `Illuminate\Contracts\Redis\Factory`/`Connection`;
+      `DispatchAvailabilityCheckJobTest` and `DispatchDueAvailabilityChecksCommandTest` cover the
+      scheduled path end-to-end through the container (`QUEUE_CONNECTION=sync` in `phpunit.xml`
+      runs the job's `handle()` synchronously).
+
+**Changes not in the original checklist:**
+- **Two distinct "watcher-commands" channels, by design, not a bug.** `DispatchAvailabilityCheckJob`
+  is dispatched onto Laravel's own `watcher-commands` queue (`->onQueue('watcher-commands')` in its
+  constructor) so `queue-worker` — the only queue worker `docker-compose.yml` defines — is the
+  process that runs it. Its `handle()` then calls `DispatchAvailabilityCheckUseCase`, whose
+  `RedisWorkerGateway` does a raw `RPUSH` of the JSON `WorkerCommand` payload onto a *plain* Redis
+  list literally named `watcher-commands`. These don't collide: Laravel's redis queue driver always
+  stores jobs under a `queues:`-prefixed key (`queues:watcher-commands`), so the raw list
+  `RedisWorkerGateway` writes to is a different physical key. This means the literal name
+  `watcher-commands` genuinely refers to two different Redis keys depending on which side is
+  talking — `queue-worker`'s own Laravel-format job queue, and the raw list node-worker will read
+  once its Phase 3 messaging module exists. Don't "fix" this by renaming one of them without
+  re-reading this note first.
+- Extended `WatchTaskRepositoryInterface` with `findPending(): array` (Phase 1 had deliberately kept
+  it to `find`/`save`/`delete` per ISP, but "enqueue periodic checks per `WatchTask`" needs a way to
+  enumerate more than one). Only `PENDING` tasks are selected — `RUNNING` ones already have a check
+  in flight (guarded by `WatchTask::start()`'s transition rule from Phase 1), and there's currently
+  no path back from `RUNNING` to `PENDING` for a re-poll; that transition is Phase 5's concern
+  (`HandleCheckCompletedUseCase` deciding "no slots found yet" vs. terminal `COMPLETED`/`FAILED`).
+- Artisan commands live under `App\Presentation\Console\Commands` (non-standard namespace, per
+  `../application/CLAUDE.md`), which the framework doesn't auto-discover the way it does
+  `app/Console/Commands`. `bootstrap/app.php` now calls `->withCommands([app_path('Presentation/Console/Commands')])`
+  explicitly — needed for `watcher:dispatch-due-checks` (and any future console command placed
+  there) to be registered as an Artisan command at all.
+- The `watcher-commands` Redis list name and the Laravel queue name are both hardcoded class
+  constants (`RedisWorkerGateway::COMMANDS_LIST`, `DispatchAvailabilityCheckJob::QUEUE`) rather than
+  config/env values — unlike `TELEGRAM_BOT_TOKEN` (a real per-environment secret), this name is
+  load-bearing infrastructure wiring shared with `docker-compose.yml`'s `queue-worker` command; an
+  env override wouldn't be independently useful since compose would also need to change in lockstep.
+- Scheduled `everyFiveMinutes()` in `routes/console.php` — not specified by this checklist, chosen
+  as a reasonable default polling cadence against a real government site; revisit once Phase 8's
+  rate-limiting/concurrency guard exists.
 
 ## Phase 5 — Inbound events from node-worker (`event-consumer`)
 

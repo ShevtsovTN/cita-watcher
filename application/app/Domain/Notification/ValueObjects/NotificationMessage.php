@@ -9,6 +9,6 @@ final readonly class NotificationMessage
     public function __construct(
         public string $text,
         public ?string $parseMode = 'HTML',
-        public array $additionalParams = []
+        public array $additionalParams = [],
     ) {}
 }

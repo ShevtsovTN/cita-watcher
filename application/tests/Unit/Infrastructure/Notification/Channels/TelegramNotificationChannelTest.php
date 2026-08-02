@@ -17,7 +17,7 @@ final class TelegramNotificationChannelTest extends TestCase
 
     public function test_it_returns_delivered_report_on_successful_response(): void
     {
-        $http = new Factory;
+        $http = new Factory();
         $http->fake([
             'api.telegram.org/*' => $http::response(['ok' => true, 'result' => ['message_id' => 42]], 200),
         ]);
@@ -33,16 +33,16 @@ final class TelegramNotificationChannelTest extends TestCase
         $this->assertNotNull($report->getDeliveredAt());
 
         $http->assertSent(function (Request $request): bool {
-            return $request->url() === 'https://api.telegram.org/bot'.self::BOT_TOKEN.'/sendMessage'
-                && $request['chat_id'] === '123456789'
-                && $request['text'] === 'Slots found'
-                && $request['parse_mode'] === 'HTML';
+            return $request->url() === 'https://api.telegram.org/bot' . self::BOT_TOKEN . '/sendMessage'
+                && '123456789' === $request['chat_id']
+                && 'Slots found' === $request['text']
+                && 'HTML' === $request['parse_mode'];
         });
     }
 
     public function test_it_includes_additional_params_in_the_request_payload(): void
     {
-        $http = new Factory;
+        $http = new Factory();
         $http->fake([
             'api.telegram.org/*' => $http::response(['ok' => true, 'result' => ['message_id' => 1]], 200),
         ]);
@@ -53,14 +53,14 @@ final class TelegramNotificationChannelTest extends TestCase
         $channel->send('123456789', $message);
 
         $http->assertSent(function (Request $request): bool {
-            return $request['parse_mode'] === 'Markdown'
-                && $request['disable_notification'] === true;
+            return 'Markdown' === $request['parse_mode']
+                && true === $request['disable_notification'];
         });
     }
 
     public function test_it_returns_failed_report_on_client_error_as_not_retryable(): void
     {
-        $http = new Factory;
+        $http = new Factory();
         $http->fake([
             'api.telegram.org/*' => $http::response(['ok' => false, 'description' => 'Bad Request: chat not found'], 400),
         ]);
@@ -77,7 +77,7 @@ final class TelegramNotificationChannelTest extends TestCase
 
     public function test_it_returns_failed_report_on_rate_limit_as_retryable(): void
     {
-        $http = new Factory;
+        $http = new Factory();
         $http->fake([
             'api.telegram.org/*' => $http::response(['ok' => false, 'description' => 'Too Many Requests'], 429),
         ]);
@@ -92,7 +92,7 @@ final class TelegramNotificationChannelTest extends TestCase
 
     public function test_it_returns_failed_report_on_server_error_as_retryable(): void
     {
-        $http = new Factory;
+        $http = new Factory();
         $http->fake([
             'api.telegram.org/*' => $http::response(['ok' => false, 'description' => 'Internal Server Error'], 500),
         ]);
@@ -107,7 +107,7 @@ final class TelegramNotificationChannelTest extends TestCase
 
     public function test_it_returns_failed_report_without_throwing_on_connection_failure(): void
     {
-        $http = new Factory;
+        $http = new Factory();
         $http->fake(function (): never {
             throw new ConnectionException('Connection timed out');
         });

@@ -25,7 +25,7 @@ final readonly class TelegramNotificationChannel implements NotificationChannelI
     public function send(string $target, NotificationMessage $message): NotificationDeliveryReport
     {
         try {
-            $response = $this->http->post(self::API_BASE_URL.'/bot'.$this->botToken.'/sendMessage', [
+            $response = $this->http->post(self::API_BASE_URL . '/bot' . $this->botToken . '/sendMessage', [
                 'chat_id' => $target,
                 'text' => $message->text,
                 'parse_mode' => $message->parseMode,
@@ -40,13 +40,13 @@ final readonly class TelegramNotificationChannel implements NotificationChannelI
             );
         }
 
-        if ($response->successful() && ($response->json('ok') === true)) {
+        if ($response->successful() && (true === $response->json('ok'))) {
             return new NotificationDeliveryReport(
                 channel: 'telegram',
                 target: $target,
                 status: DeliveryStatusEnum::DELIVERED,
                 externalId: (string) $response->json('result.message_id'),
-                deliveredAt: new DateTimeImmutable,
+                deliveredAt: new DateTimeImmutable(),
             );
         }
 
@@ -57,7 +57,7 @@ final readonly class TelegramNotificationChannel implements NotificationChannelI
             error: new DeliveryFailure(
                 code: $response->status(),
                 message: (string) ($response->json('description') ?? $response->body()),
-                retryable: $response->status() === 429 || $response->serverError(),
+                retryable: 429 === $response->status() || $response->serverError(),
             ),
         );
     }

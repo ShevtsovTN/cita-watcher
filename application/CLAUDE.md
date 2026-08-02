@@ -8,13 +8,15 @@ See the repo-root `CLAUDE.md` for the overall monorepo/cross-service picture.
 Laravel 13 (PHP 8.4) app: orchestrates watch tasks, persists state, dispatches commands to the
 node-worker, and (eventually) consumes result events back from it.
 
-**Project stage:** `Domain/Watcher`, `Infrastructure/Watcher` (persistence), and
-`Application/Watcher` (use cases, `WorkerGatewayInterface` port, the `SlotsFoundEvent` notification
-listener) are implemented — see `../docs/APPLICATION_ROADMAP.md` Phases 1–3 for what exists and
-their unit tests. Still missing: outbound Redis command dispatch to node-worker (Phase 4), the
-inbound `event-consumer` (Phase 5), applicant data encryption (Phase 6), and any `Watcher`
-Presentation layer (Phase 7) — only `User` and the base `Controller` exist there so far. Check the
-roadmap before assuming a later phase's piece exists.
+**Project stage:** `Domain/Watcher`, `Infrastructure/Watcher` (persistence + the Phase 4
+`RedisWorkerGateway` messaging), and `Application/Watcher` (use cases, `WorkerGatewayInterface`
+port, the `SlotsFoundEvent` notification listener) are implemented, plus the Phase 4
+`DispatchAvailabilityCheckJob` and its `watcher:dispatch-due-checks` scheduled command — see
+`../docs/APPLICATION_ROADMAP.md` Phases 1–4 for what exists and their tests. Still missing: the
+inbound `event-consumer` (Phase 5), applicant data encryption (Phase 6), and any `WatchTask` HTTP
+Presentation layer (Phase 7) — only `User`, the base `Controller`, and the Phase 4 job/console
+command exist under `Presentation` so far. Check the roadmap before assuming a later phase's piece
+exists.
 
 ## Architecture principles (apply to all new business logic)
 

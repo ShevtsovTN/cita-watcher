@@ -24,7 +24,7 @@ final class WatchTask
         private readonly string $notificationTarget,
         WatchTaskStatusEnum $status = WatchTaskStatusEnum::PENDING,
     ) {
-        if (trim($this->notificationTarget) === '') {
+        if ('' === mb_trim($this->notificationTarget)) {
             throw new InvalidWatchTaskException('WatchTask notification target must not be blank.');
         }
 
@@ -99,7 +99,7 @@ final class WatchTask
      */
     private function transitionTo(WatchTaskStatusEnum $to, array $from): void
     {
-        if (! in_array($this->status, $from, true)) {
+        if ( ! in_array($this->status, $from, true)) {
             throw InvalidWatchTaskTransitionException::fromStatusTo($this->status, $to);
         }
 

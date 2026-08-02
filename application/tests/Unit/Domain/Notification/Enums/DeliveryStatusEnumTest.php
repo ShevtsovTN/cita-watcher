@@ -10,13 +10,6 @@ use PHPUnit\Framework\TestCase;
 
 final class DeliveryStatusEnumTest extends TestCase
 {
-    #[DataProvider('statuses')]
-    public function test_status_flags(DeliveryStatusEnum $status, bool $expectedSuccessful, bool $expectedRetryable): void
-    {
-        $this->assertSame($expectedSuccessful, $status->isSuccessful());
-        $this->assertSame($expectedRetryable, $status->isRetryable());
-    }
-
     public static function statuses(): array
     {
         return [
@@ -25,5 +18,12 @@ final class DeliveryStatusEnumTest extends TestCase
             'failed' => [DeliveryStatusEnum::FAILED, false, true],
             'pending' => [DeliveryStatusEnum::PENDING, false, true],
         ];
+    }
+
+    #[DataProvider('statuses')]
+    public function test_status_flags(DeliveryStatusEnum $status, bool $expectedSuccessful, bool $expectedRetryable): void
+    {
+        $this->assertSame($expectedSuccessful, $status->isSuccessful());
+        $this->assertSame($expectedRetryable, $status->isRetryable());
     }
 }

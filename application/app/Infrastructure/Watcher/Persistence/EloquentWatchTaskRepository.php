@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Watcher\Persistence;
 
+use App\Domain\Watcher\Enums\WatchTaskStatusEnum;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
 use App\Domain\Watcher\ValueObjects\Procedure;
@@ -16,13 +17,13 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
     {
         $model = WatchTaskModel::query()->find($id);
 
-        return $model === null ? null : $this->toDomain($model);
+        return null === $model ? null : $this->toDomain($model);
     }
 
     public function save(WatchTask $watchTask): WatchTask
     {
-        $model = $watchTask->id() === null
-            ? new WatchTaskModel
+        $model = null === $watchTask->id()
+            ? new WatchTaskModel()
             : WatchTaskModel::query()->findOrFail($watchTask->id());
 
         $model->fill([
@@ -45,9 +46,18 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
 
     public function delete(WatchTask $watchTask): void
     {
-        if ($watchTask->id() !== null) {
+        if (null !== $watchTask->id()) {
             WatchTaskModel::destroy($watchTask->id());
         }
+    }
+
+    public function findPending(): array
+    {
+        return WatchTaskModel::query()
+            ->where('status', WatchTaskStatusEnum::PENDING)
+            ->get()
+            ->map(fn(WatchTaskModel $model): WatchTask => $this->toDomain($model))
+            ->all();
     }
 
     private function toDomain(WatchTaskModel $model): WatchTask

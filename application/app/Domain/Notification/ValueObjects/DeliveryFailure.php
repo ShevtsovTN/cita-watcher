@@ -9,9 +9,8 @@ final readonly class DeliveryFailure
     public function __construct(
         public int $code,
         public string $message,
-        public bool $retryable = false
-    ) {
-    }
+        public bool $retryable = false,
+    ) {}
 
     public function getCode(): int
     {

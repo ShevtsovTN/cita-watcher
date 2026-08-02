@@ -21,7 +21,7 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
     public function test_save_persists_a_new_watch_task_and_assigns_an_id(): void
     {
         $user = User::factory()->create();
-        $repository = new EloquentWatchTaskRepository;
+        $repository = new EloquentWatchTaskRepository();
 
         $persisted = $repository->save($this->makeWatchTask($user->id));
 
@@ -32,7 +32,7 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
 
     public function test_find_returns_null_for_an_unknown_id(): void
     {
-        $repository = new EloquentWatchTaskRepository;
+        $repository = new EloquentWatchTaskRepository();
 
         $this->assertNull($repository->find(999));
     }
@@ -40,7 +40,7 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
     public function test_find_returns_a_previously_saved_watch_task_with_all_data_intact(): void
     {
         $user = User::factory()->create();
-        $repository = new EloquentWatchTaskRepository;
+        $repository = new EloquentWatchTaskRepository();
 
         $saved = $repository->save($this->makeWatchTask($user->id, phone: '600123456'));
 
@@ -63,7 +63,7 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
     public function test_save_updates_an_existing_watch_task_in_place(): void
     {
         $user = User::factory()->create();
-        $repository = new EloquentWatchTaskRepository;
+        $repository = new EloquentWatchTaskRepository();
 
         $watchTask = $repository->save($this->makeWatchTask($user->id));
         $watchTask->start();
@@ -74,10 +74,27 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
         $this->assertSame(WatchTaskStatusEnum::RUNNING, $repository->find($watchTask->id())->status());
     }
 
+    public function test_find_pending_returns_only_pending_watch_tasks(): void
+    {
+        $user = User::factory()->create();
+        $repository = new EloquentWatchTaskRepository();
+
+        $pending = $repository->save($this->makeWatchTask($user->id));
+        $running = $repository->save($this->makeWatchTask($user->id));
+        $running->start();
+        $repository->save($running);
+
+        $found = $repository->findPending();
+
+        $this->assertCount(1, $found);
+        $this->assertSame($pending->id(), $found[0]->id());
+        $this->assertSame(WatchTaskStatusEnum::PENDING, $found[0]->status());
+    }
+
     public function test_delete_removes_the_watch_task(): void
     {
         $user = User::factory()->create();
-        $repository = new EloquentWatchTaskRepository;
+        $repository = new EloquentWatchTaskRepository();
 
         $watchTask = $repository->save($this->makeWatchTask($user->id));
 

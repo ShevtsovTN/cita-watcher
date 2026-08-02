@@ -14,15 +14,15 @@ final readonly class ApplicantData
         public string $email,
         public ?string $phone = null,
     ) {
-        if (trim($this->fullName) === '') {
+        if ('' === mb_trim($this->fullName)) {
             throw new InvalidApplicantDataException('Applicant full name must not be blank.');
         }
 
-        if (trim($this->documentId) === '') {
+        if ('' === mb_trim($this->documentId)) {
             throw new InvalidApplicantDataException('Applicant document id must not be blank.');
         }
 
-        if (trim($this->email) === '') {
+        if ('' === mb_trim($this->email)) {
             throw new InvalidApplicantDataException('Applicant email must not be blank.');
         }
     }

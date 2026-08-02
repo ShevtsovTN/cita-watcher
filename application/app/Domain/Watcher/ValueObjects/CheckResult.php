@@ -18,6 +18,6 @@ final readonly class CheckResult
 
     public function slotsFound(): bool
     {
-        return $this->slots !== [];
+        return [] !== $this->slots;
     }
 }

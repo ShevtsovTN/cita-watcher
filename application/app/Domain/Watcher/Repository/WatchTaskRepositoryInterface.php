@@ -18,4 +18,9 @@ interface WatchTaskRepositoryInterface
     public function save(WatchTask $watchTask): WatchTask;
 
     public function delete(WatchTask $watchTask): void;
+
+    /**
+     * @return list<WatchTask>
+     */
+    public function findPending(): array;
 }

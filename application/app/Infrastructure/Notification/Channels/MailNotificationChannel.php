@@ -39,7 +39,7 @@ final readonly class MailNotificationChannel implements NotificationChannelInter
             channel: 'mail',
             target: $target,
             status: DeliveryStatusEnum::DELIVERED,
-            deliveredAt: new DateTimeImmutable,
+            deliveredAt: new DateTimeImmutable(),
         );
     }
 }

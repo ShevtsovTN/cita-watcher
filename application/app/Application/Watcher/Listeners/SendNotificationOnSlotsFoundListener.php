@@ -29,7 +29,7 @@ final readonly class SendNotificationOnSlotsFoundListener
     {
         $watchTask = $this->watchTaskRepository->find($event->watchTaskId);
 
-        if ($watchTask === null) {
+        if (null === $watchTask) {
             return;
         }
 
@@ -54,10 +54,10 @@ final readonly class SendNotificationOnSlotsFoundListener
     private function formatMessage(array $slots): string
     {
         $lines = array_map(
-            static fn (AppointmentSlot $slot): string => sprintf('%s at %s', $slot->dateTime->format('Y-m-d H:i'), $slot->office),
+            static fn(AppointmentSlot $slot): string => sprintf('%s at %s', $slot->dateTime->format('Y-m-d H:i'), $slot->office),
             $slots,
         );
 
-        return "Appointment slots found:\n".implode("\n", $lines);
+        return "Appointment slots found:\n" . implode("\n", $lines);
     }
 }

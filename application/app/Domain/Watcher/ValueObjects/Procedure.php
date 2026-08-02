@@ -12,11 +12,11 @@ final readonly class Procedure
         public string $province,
         public string $tramiteCode,
     ) {
-        if (trim($this->province) === '') {
+        if ('' === mb_trim($this->province)) {
             throw new InvalidProcedureException('Procedure province must not be blank.');
         }
 
-        if (trim($this->tramiteCode) === '') {
+        if ('' === mb_trim($this->tramiteCode)) {
             throw new InvalidProcedureException('Procedure trámite code must not be blank.');
         }
     }

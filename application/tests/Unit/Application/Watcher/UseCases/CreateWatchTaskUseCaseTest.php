@@ -36,12 +36,12 @@ final class CreateWatchTaskUseCaseTest extends TestCase
         $repository->shouldReceive('save')
             ->once()
             ->with(Mockery::on(function (WatchTask $watchTask) use ($procedure, $applicantData): bool {
-                return $watchTask->id() === null
-                    && $watchTask->userId() === 7
+                return null === $watchTask->id()
+                    && 7 === $watchTask->userId()
                     && $watchTask->procedure() === $procedure
                     && $watchTask->applicantData() === $applicantData
-                    && $watchTask->notificationChannel() === WatchTaskNotificationChannelEnum::TELEGRAM
-                    && $watchTask->notificationTarget() === '123456789';
+                    && WatchTaskNotificationChannelEnum::TELEGRAM === $watchTask->notificationChannel()
+                    && '123456789' === $watchTask->notificationTarget();
             }))
             ->andReturn($persisted);
 

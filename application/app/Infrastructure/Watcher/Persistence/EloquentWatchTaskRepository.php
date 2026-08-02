@@ -4,15 +4,19 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Watcher\Persistence;
 
+use App\Application\Watcher\Ports\ApplicantDataEncryptorInterface;
 use App\Domain\Watcher\Enums\WatchTaskStatusEnum;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
-use App\Domain\Watcher\ValueObjects\ApplicantData;
 use App\Domain\Watcher\ValueObjects\Procedure;
 use App\Domain\Watcher\WatchTask;
 use App\Infrastructure\Persistence\Models\WatchTask as WatchTaskModel;
 
 final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
 {
+    public function __construct(
+        private readonly ApplicantDataEncryptorInterface $applicantDataEncryptor,
+    ) {}
+
     public function find(int $id): ?WatchTask
     {
         $model = WatchTaskModel::query()->find($id);
@@ -30,10 +34,7 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
             'user_id' => $watchTask->userId(),
             'province' => $watchTask->procedure()->province,
             'tramite_code' => $watchTask->procedure()->tramiteCode,
-            'applicant_full_name' => $watchTask->applicantData()->fullName,
-            'applicant_document_id' => $watchTask->applicantData()->documentId,
-            'applicant_email' => $watchTask->applicantData()->email,
-            'applicant_phone' => $watchTask->applicantData()->phone,
+            'applicant_data' => $this->applicantDataEncryptor->encrypt($watchTask->applicantData()),
             'notification_channel' => $watchTask->notificationChannel(),
             'notification_target' => $watchTask->notificationTarget(),
             'status' => $watchTask->status(),
@@ -69,12 +70,7 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
                 province: $model->province,
                 tramiteCode: $model->tramite_code,
             ),
-            applicantData: new ApplicantData(
-                fullName: $model->applicant_full_name,
-                documentId: $model->applicant_document_id,
-                email: $model->applicant_email,
-                phone: $model->applicant_phone,
-            ),
+            applicantData: $this->applicantDataEncryptor->decrypt($model->applicant_data),
             notificationChannel: $model->notification_channel,
             notificationTarget: $model->notification_target,
             status: $model->status,

@@ -28,8 +28,10 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
 - `App\Infrastructure\Persistence\Models\WatchTask` Eloquent model (native enum casts for
   `status`/`notification_channel`) and `App\Infrastructure\Watcher\Persistence\EloquentWatchTaskRepository`
   implementing `WatchTaskRepositoryInterface`, bound in `WatcherServiceProvider`. Migration
-  `create_watch_tasks_table` — `ApplicantData`/`Procedure` columns are plain (not yet encrypted,
-  see Phase 6). Covered by `tests/Unit/Infrastructure/Watcher/Persistence/EloquentWatchTaskRepositoryTest.php`.
+  `create_watch_tasks_table` — `Procedure` columns (`province`/`tramite_code`) are plain;
+  `ApplicantData` is encrypted at rest as a single `applicant_data` ciphertext column (Phase 6, see
+  its notes below) — `EloquentWatchTaskRepository` never sees plaintext `ApplicantData` pass through
+  Eloquent. Covered by `tests/Unit/Infrastructure/Watcher/Persistence/EloquentWatchTaskRepositoryTest.php`.
 - `App\Application\Watcher\UseCases\{CreateWatchTaskUseCase,DispatchAvailabilityCheckUseCase,PauseWatchTaskUseCase,ResumeWatchTaskUseCase,DeleteWatchTaskUseCase}`,
   `Application\Watcher\Ports\WorkerGatewayInterface`, and
   `Application\Watcher\Listeners\SendNotificationOnSlotsFoundListener` (registered on
@@ -50,7 +52,12 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   `App\Infrastructure\Watcher\Messaging\WorkerEventRouter`, and
   `App\Presentation\Console\Commands\ConsumeWatcherEventsCommand` (`watcher:consume-events`,
   re-enabled in `docker-compose.yml`). All with tests — see the Phase 5 notes below.
-- Phase 0 through Phase 5 (below) are complete.
+- `App\Application\Watcher\Ports\ApplicantDataEncryptorInterface` →
+  `App\Infrastructure\Watcher\Encryption\LaravelApplicantDataEncryptor` (wraps
+  `Illuminate\Contracts\Encryption\Encrypter`, `APP_KEY`-backed), called from
+  `EloquentWatchTaskRepository` on every `save()`/`find()`/`findPending()`. `watch_tasks.applicant_data`
+  is a single ciphertext column — see the Phase 6 notes below.
+- Phase 0 through Phase 6 (below) are complete.
 - Only `User` and the base `Controller` exist as Presentation-layer HTTP pieces (plus the Phase 4/5
   jobs/console commands above) — no `WatchTask` HTTP controllers yet (Phase 7).
 
@@ -296,16 +303,55 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   `Event::fake()`) exercising all three event types end-to-end. Only the outermost `subscribe()`
   wiring itself goes untested, same as Laravel's own `queue:work` loop.
 
-## Phase 6 — Applicant data protection
+## Phase 6 — Applicant data protection ✅ done
 
-- [ ] `ApplicantDataEncryptorInterface` port (mentioned as a port example in
-      `../application/CLAUDE.md` but not yet created) in `Application/Watcher/Ports`.
-- [ ] Infrastructure implementation using Laravel's encryption (`APP_KEY`) or a dedicated envelope
-      scheme if applicant data needs independent key rotation from the rest of the app.
-- [ ] Ensure `ApplicantData` value object never round-trips through logs/exceptions in plaintext —
+- [x] `ApplicantDataEncryptorInterface` port (mentioned as a port example in
+      `../application/CLAUDE.md` but not yet created) in `Application/Watcher/Ports`. Narrow:
+      `encrypt(ApplicantData): string` / `decrypt(string): ApplicantData`.
+- [x] Infrastructure implementation using Laravel's encryption (`APP_KEY`) or a dedicated envelope
+      scheme if applicant data needs independent key rotation from the rest of the app. Went with
+      Laravel's own `APP_KEY`-backed `Illuminate\Contracts\Encryption\Encrypter` — no KMS/secrets
+      infra exists anywhere else in this repo, and the port fully isolates this choice, so switching
+      to an envelope scheme later needs no Domain/Application changes.
+- [x] Ensure `ApplicantData` value object never round-trips through logs/exceptions in plaintext —
       check `DeliveryFailure`/exception messages in the notification channels don't leak it either.
-- [ ] Tests: encrypt/decrypt round-trip, and a check that plaintext applicant data never appears
-      in `storage/logs/laravel.log` during a normal run.
+      Verified (and now regression-tested) that `SendNotificationOnSlotsFoundListener`/
+      `SendNotificationOnCheckFailedListener` never format applicant fields into a
+      `NotificationMessage`; `WorkerEventRouter`'s inbound payloads and `DispatchAvailabilityCheckJob`'s
+      serialized payload never carry `ApplicantData` either, so `failed_jobs` and
+      `ConsumeWatcherEventsCommand`'s error log stay clean by construction.
+- [x] Tests: encrypt/decrypt round-trip, and a check that plaintext applicant data never appears
+      in `storage/logs/laravel.log` during a normal run. `LaravelApplicantDataEncryptorTest` covers
+      the round-trip (including nullable `phone`); `ApplicantDataDoesNotLeakToLogsTest` points a
+      real `single`-driver log channel at a throwaway file and asserts the actual file contents
+      never contain the plaintext fields, rather than mocking the logger (no `Log::fake()` exists in
+      this Laravel version, and a full Mockery spy can't easily assert "no PII in any call, whatever
+      it turns out to be").
+
+**Changes not in the original checklist:**
+- **Whole-VO ciphertext, not per-field encryption.** `watch_tasks` had 4 plaintext columns
+  (`applicant_full_name`/`applicant_document_id`/`applicant_email`/`applicant_phone`); these are now
+  a single `applicant_data` `text` column holding one ciphertext blob of the whole `ApplicantData`
+  VO (PHP-serialized then encrypted, via `Encrypter::encrypt()`'s own `$serialize` step — no manual
+  JSON needed). `ApplicantData` is already treated as one indivisible value object everywhere else
+  in the codebase; encrypting it field-by-field would just be more code for no real security benefit
+  (Laravel's encrypter uses a random IV per call regardless).
+- **`2026_08_01_120000_create_watch_tasks_table.php` was edited in place**, not superseded by a new
+  migration — the table was created in this same not-yet-shipped branch with an explicit "plain for
+  now" comment and holds no real data anywhere. Also fixed that comment, which had drifted to
+  reference the wrong phase number ("see Phase 5") after Phase 5's scope changed from encryption to
+  inbound events.
+- **`ConsumeWatcherEventsCommand` refactored**: the `Redis::subscribe()` callback body moved into a
+  public `handleMessage(string $payload, WorkerEventRouter $router): void` method. Not encryption
+  work per se, but required to write `ApplicantDataDoesNotLeakToLogsTest` at all — `handle()` itself
+  blocks forever inside `subscribe()` and can't be driven by a test, so the testable unit had to be
+  pulled out. Also dropped the redundant `$this->error(...)` console echo on failure (would have
+  required a fully-initialized console `$output`, which a directly-resolved command instance doesn't
+  have in a test); `Log::error(...)` alone is the durable record.
+- **Scope boundary reaffirmed, not re-litigated:** `RedisWorkerGateway`'s `WorkerCommand` (Phase 4)
+  still sends `ApplicantData` in plaintext into the `watcher-commands` Redis list — node-worker
+  needs the real name/DNI/email to fill the government form. That's in-flight operational data, not
+  "logs," and stays out of Phase 6's scope per the Phase 4 notes.
 
 ## Phase 7 — Presentation layer
 

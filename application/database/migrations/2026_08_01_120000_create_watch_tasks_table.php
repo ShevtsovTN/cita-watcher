@@ -20,12 +20,10 @@ return new class () extends Migration {
             $table->string('province');
             $table->string('tramite_code');
 
-            // ApplicantData value object — plain columns for now, see docs/APPLICATION_ROADMAP.md
-            // Phase 5 for turning these into encrypted columns.
-            $table->string('applicant_full_name');
-            $table->string('applicant_document_id');
-            $table->string('applicant_email');
-            $table->string('applicant_phone')->nullable();
+            // ApplicantData value object — one ciphertext blob (see
+            // Infrastructure\Watcher\Encryption\LaravelApplicantDataEncryptor and
+            // docs/APPLICATION_ROADMAP.md Phase 6), not plain columns per field.
+            $table->text('applicant_data');
 
             // Notification preferences
             $table->string('notification_channel');

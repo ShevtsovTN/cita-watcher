@@ -20,15 +20,17 @@ The repo is a monorepo with three independent parts, each with its own toolchain
   everything together for local/dev/prod runs. See `cita-watcher-docker/CLAUDE.md`.
 
 **Project stage:** on the Laravel side, `Domain/Watcher`, `Infrastructure/Watcher`, and
-`Application/Watcher` are fully implemented through Phase 5 of `docs/APPLICATION_ROADMAP.md`: both
+`Application/Watcher` are fully implemented through Phase 6 of `docs/APPLICATION_ROADMAP.md`:
 outbound command dispatch to node-worker (Phase 4 — `RedisWorkerGateway`,
-`DispatchAvailabilityCheckJob`, the scheduled `watcher:dispatch-due-checks` command) and inbound
-event consumption from node-worker (Phase 5 — the `watcher:consume-events` artisan command,
+`DispatchAvailabilityCheckJob`, the scheduled `watcher:dispatch-due-checks` command), inbound event
+consumption from node-worker (Phase 5 — the `watcher:consume-events` artisan command,
 `WorkerEventRouter`, and the `HandleCheckCompletedUseCase`/`HandleCaptchaRequiredUseCase`/
-`HandleCheckFailedUseCase` use cases) now exist and are wired up in `docker-compose.yml`. Applicant
-data encryption and any `WatchTask` HTTP Presentation layer are still outstanding (Phases 6–7);
-only `User`, the base `Controller`, and the Phase 4/5 jobs/console commands exist as
-Presentation-layer pieces so far. `node-worker/src/index.ts` is still an empty stub — its
+`HandleCheckFailedUseCase` use cases), and applicant data encryption at rest (Phase 6 —
+`ApplicantDataEncryptorInterface` → `LaravelApplicantDataEncryptor`; `watch_tasks.applicant_data` is
+one `APP_KEY`-encrypted column, not plain per-field columns) all now exist and are wired up in
+`docker-compose.yml`. Any `WatchTask` HTTP Presentation layer is still outstanding (Phase 7); only
+`User`, the base `Controller`, and the Phase 4/5 jobs/console commands exist as Presentation-layer
+pieces so far. `node-worker/src/index.ts` is still an empty stub — its
 `messaging/` module (Phase 3 of `docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so **neither**
 side of the Redis contract (`WorkerCommand` outbound, the `watcher-events` payloads inbound) is
 confirmed against a real node-worker implementation yet, only against each other's roadmap notes.

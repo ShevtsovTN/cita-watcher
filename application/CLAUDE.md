@@ -9,14 +9,17 @@ Laravel 13 (PHP 8.4) app: orchestrates watch tasks, persists state, dispatches c
 node-worker, and (eventually) consumes result events back from it.
 
 **Project stage:** `Domain/Watcher`, `Infrastructure/Watcher` (persistence + Phase 4/5 Redis
-messaging), and `Application/Watcher` (use cases, ports, listeners) are fully implemented through
-Phase 5 — outbound command dispatch to node-worker (Phase 4: `RedisWorkerGateway`,
-`DispatchAvailabilityCheckJob`, `watcher:dispatch-due-checks`) and inbound event consumption from
-node-worker (Phase 5: `watcher:consume-events`, `WorkerEventRouter`, the three `Handle*UseCase`s) —
-see `../docs/APPLICATION_ROADMAP.md` Phases 1–5 for what exists and their tests. Still missing:
-applicant data encryption (Phase 6) and any `WatchTask` HTTP Presentation layer (Phase 7) — only
-`User`, the base `Controller`, and the Phase 4/5 jobs/console commands exist under `Presentation`
-so far. Check the roadmap before assuming a later phase's piece exists.
+messaging + Phase 6 encryption), and `Application/Watcher` (use cases, ports, listeners) are fully
+implemented through Phase 6 — outbound command dispatch to node-worker (Phase 4:
+`RedisWorkerGateway`, `DispatchAvailabilityCheckJob`, `watcher:dispatch-due-checks`), inbound event
+consumption from node-worker (Phase 5: `watcher:consume-events`, `WorkerEventRouter`, the three
+`Handle*UseCase`s), and applicant data encryption at rest (Phase 6:
+`ApplicantDataEncryptorInterface` → `LaravelApplicantDataEncryptor`, wired into
+`EloquentWatchTaskRepository`; `watch_tasks.applicant_data` is one ciphertext column, not 4 plain
+ones) — see `../docs/APPLICATION_ROADMAP.md` Phases 1–6 for what exists and their tests. Still
+missing: any `WatchTask` HTTP Presentation layer (Phase 7) — only `User`, the base `Controller`,
+and the Phase 4/5 jobs/console commands exist under `Presentation` so far. Check the roadmap before
+assuming a later phase's piece exists.
 
 ## Architecture principles (apply to all new business logic)
 

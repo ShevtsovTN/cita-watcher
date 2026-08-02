@@ -32,19 +32,28 @@ final class ConsumeWatcherEventsCommand extends Command
     {
         $this->info(sprintf('Listening on the "%s" Redis channel...', self::CHANNEL));
 
-        $redis->connection()->subscribe([self::CHANNEL], function (string $payload) use ($router): void {
-            try {
-                $router->route($payload);
-            } catch (Throwable $exception) {
-                $this->error(sprintf('Failed to handle a worker event: %s', $exception->getMessage()));
-
-                Log::error('watcher:consume-events failed to handle a message', [
-                    'exception' => $exception,
-                    'payload' => $payload,
-                ]);
-            }
-        });
+        $redis->connection()->subscribe(
+            [self::CHANNEL],
+            fn(string $payload) => $this->handleMessage($payload, $router),
+        );
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Extracted from handle()'s subscribe callback so it's callable directly in tests without a
+     * real Redis connection — Redis::subscribe() itself blocks forever and can't be driven by a
+     * test the way this method can.
+     */
+    public function handleMessage(string $payload, WorkerEventRouter $router): void
+    {
+        try {
+            $router->route($payload);
+        } catch (Throwable $exception) {
+            Log::error('watcher:consume-events failed to handle a message', [
+                'exception' => $exception,
+                'payload' => $payload,
+            ]);
+        }
     }
 }

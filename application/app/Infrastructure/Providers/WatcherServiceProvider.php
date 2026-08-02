@@ -6,11 +6,13 @@ namespace App\Infrastructure\Providers;
 
 use App\Application\Watcher\Listeners\SendNotificationOnCheckFailedListener;
 use App\Application\Watcher\Listeners\SendNotificationOnSlotsFoundListener;
+use App\Application\Watcher\Ports\ApplicantDataEncryptorInterface;
 use App\Application\Watcher\Ports\DomainEventDispatcherInterface;
 use App\Application\Watcher\Ports\WorkerGatewayInterface;
 use App\Domain\Watcher\Events\CheckFailedEvent;
 use App\Domain\Watcher\Events\SlotsFoundEvent;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
+use App\Infrastructure\Watcher\Encryption\LaravelApplicantDataEncryptor;
 use App\Infrastructure\Watcher\Events\IlluminateDomainEventDispatcher;
 use App\Infrastructure\Watcher\Messaging\RedisWorkerGateway;
 use App\Infrastructure\Watcher\Persistence\EloquentWatchTaskRepository;
@@ -27,6 +29,7 @@ class WatcherServiceProvider extends ServiceProvider
         $this->app->bind(WatchTaskRepositoryInterface::class, EloquentWatchTaskRepository::class);
         $this->app->bind(WorkerGatewayInterface::class, RedisWorkerGateway::class);
         $this->app->bind(DomainEventDispatcherInterface::class, IlluminateDomainEventDispatcher::class);
+        $this->app->bind(ApplicantDataEncryptorInterface::class, LaravelApplicantDataEncryptor::class);
     }
 
     /**

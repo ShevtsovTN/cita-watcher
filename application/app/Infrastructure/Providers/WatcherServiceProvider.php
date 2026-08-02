@@ -4,10 +4,14 @@ declare(strict_types=1);
 
 namespace App\Infrastructure\Providers;
 
+use App\Application\Watcher\Listeners\SendNotificationOnCheckFailedListener;
 use App\Application\Watcher\Listeners\SendNotificationOnSlotsFoundListener;
+use App\Application\Watcher\Ports\DomainEventDispatcherInterface;
 use App\Application\Watcher\Ports\WorkerGatewayInterface;
+use App\Domain\Watcher\Events\CheckFailedEvent;
 use App\Domain\Watcher\Events\SlotsFoundEvent;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
+use App\Infrastructure\Watcher\Events\IlluminateDomainEventDispatcher;
 use App\Infrastructure\Watcher\Messaging\RedisWorkerGateway;
 use App\Infrastructure\Watcher\Persistence\EloquentWatchTaskRepository;
 use Illuminate\Support\Facades\Event;
@@ -22,6 +26,7 @@ class WatcherServiceProvider extends ServiceProvider
     {
         $this->app->bind(WatchTaskRepositoryInterface::class, EloquentWatchTaskRepository::class);
         $this->app->bind(WorkerGatewayInterface::class, RedisWorkerGateway::class);
+        $this->app->bind(DomainEventDispatcherInterface::class, IlluminateDomainEventDispatcher::class);
     }
 
     /**
@@ -30,5 +35,6 @@ class WatcherServiceProvider extends ServiceProvider
     public function boot(): void
     {
         Event::listen(SlotsFoundEvent::class, SendNotificationOnSlotsFoundListener::class);
+        Event::listen(CheckFailedEvent::class, SendNotificationOnCheckFailedListener::class);
     }
 }

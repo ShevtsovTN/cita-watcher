@@ -42,9 +42,17 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   (`watcher:dispatch-due-checks`, scheduled `everyFiveMinutes()` in `routes/console.php`). Bound in
   `WatcherServiceProvider`. All with tests — see the Phase 4 notes below, especially the
   two-different-Redis-keys-with-the-same-name design.
-- Phase 0, Phase 1, Phase 2, Phase 3, and Phase 4 (below) are complete.
-- Only `User` and the base `Controller` exist as Presentation-layer HTTP pieces (plus the Phase 4
-  job/console command above) — no `WatchTask` controllers or the Phase 5 `event-consumer` yet.
+- `App\Domain\Watcher\WatchTask::recheck()` (RUNNING → PENDING),
+  `App\Application\Watcher\Ports\DomainEventDispatcherInterface` →
+  `App\Infrastructure\Watcher\Events\IlluminateDomainEventDispatcher`,
+  `App\Application\Watcher\UseCases\{HandleCheckCompletedUseCase,HandleCaptchaRequiredUseCase,HandleCheckFailedUseCase}`,
+  `App\Application\Watcher\Listeners\SendNotificationOnCheckFailedListener`,
+  `App\Infrastructure\Watcher\Messaging\WorkerEventRouter`, and
+  `App\Presentation\Console\Commands\ConsumeWatcherEventsCommand` (`watcher:consume-events`,
+  re-enabled in `docker-compose.yml`). All with tests — see the Phase 5 notes below.
+- Phase 0 through Phase 5 (below) are complete.
+- Only `User` and the base `Controller` exist as Presentation-layer HTTP pieces (plus the Phase 4/5
+  jobs/console commands above) — no `WatchTask` HTTP controllers yet (Phase 7).
 
 Every phase below follows the layering and DDD/SOLID conventions in `../application/CLAUDE.md` —
 new business capabilities get their own `Domain/<Context>`, `Application/<Context>`,
@@ -228,23 +236,65 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   as a reasonable default polling cadence against a real government site; revisit once Phase 8's
   rate-limiting/concurrency guard exists.
 
-## Phase 5 — Inbound events from node-worker (`event-consumer`)
+## Phase 5 — Inbound events from node-worker (`event-consumer`) ✅ done
 
-This is the piece `../CLAUDE.md` explicitly calls out as **not yet implemented** — the
-`watcher:consume-events` artisan command is commented out in `docker-compose.yml`.
-
-- [ ] `watcher:consume-events` console command in `Presentation/Console` — thin: subscribe to the
+- [x] `watcher:consume-events` console command in `Presentation/Console` — thin: subscribe to the
       Redis pub/sub channel(s) node-worker publishes on, deserialize, delegate to a use case.
-- [ ] `Application/Watcher/UseCases/HandleCheckCompletedUseCase`,
+      Implemented as `Presentation/Console/Commands/ConsumeWatcherEventsCommand`, subscribing to a
+      single `watcher-events` channel and delegating each raw message to
+      `Infrastructure/Watcher/Messaging/WorkerEventRouter`.
+- [x] `Application/Watcher/UseCases/HandleCheckCompletedUseCase`,
       `HandleCaptchaRequiredUseCase`, `HandleCheckFailedUseCase` (or one use case dispatching
       Domain events per inbound event type) — each updates `WatchTask` state via the repository
       and raises the corresponding Domain event from Phase 1 for listeners (e.g. notification) to
-      react to.
-- [ ] Re-enable the `event-consumer` service block in `cita-watcher-docker/docker-compose.yml`
+      react to. Implemented as three separate use cases (SRP, matching Phase 3's granularity).
+- [x] Re-enable the `event-consumer` service block in `cita-watcher-docker/docker-compose.yml`
       once the command exists (coordinate with whoever owns docker-compose changes — this file is
-      shared infrastructure, not application-only).
-- [ ] Tests: fake Redis pub/sub, verify each event type updates `WatchTask` state and triggers the
-      right Domain event.
+      shared infrastructure, not application-only). Done — `command: ["php", "artisan", "watcher:consume-events"]`
+      is uncommented.
+- [x] Tests: fake Redis pub/sub, verify each event type updates `WatchTask` state and triggers the
+      right Domain event. See the testing-strategy note below for what's actually covered vs. what
+      can't be.
+
+**Changes not in the original checklist:**
+- **New `WatchTask::recheck()` transition (RUNNING → PENDING)**, added to the Phase 1 entity. The
+  existing lifecycle had no way to express "checked, no slots yet, keep watching" — `complete()`
+  and `fail()` are both terminal. `HandleCheckCompletedUseCase` calls `complete()` only when
+  `CheckResult::slotsFound()` is true; otherwise it calls `recheck()`, so the WatchTask becomes
+  `PENDING` again and `DispatchDueAvailabilityChecksCommand` (Phase 4) picks it up on its next
+  `everyFiveMinutes()` tick. `recheck()` is deliberately a separate method from `resume()` — the
+  latter is a user-driven un-pause action, not "a check finished, poll again."
+- **New `Application/Watcher/Ports/DomainEventDispatcherInterface`** (`dispatch(object $event): void`),
+  implemented by `Infrastructure/Watcher/Events/IlluminateDomainEventDispatcher` (wraps
+  `Illuminate\Contracts\Events\Dispatcher`), bound in `WatcherServiceProvider`. Not called out in
+  the checklist, but needed so the three new use cases can raise Domain events without an
+  Application-layer class depending on an Illuminate facade directly (per the facade rule in
+  `../application/CLAUDE.md`).
+- **Single `watcher-events` Redis pub/sub channel with a `type` discriminator field**, symmetric
+  with Phase 4's outbound `WorkerCommand` shape, rather than one channel per event type. Payload
+  shapes (provisional, not yet confirmed against node-worker's Phase 3 messaging module, which
+  doesn't exist yet — see `../docs/NODE_WORKER_ROADMAP.md`):
+  - `{"type": "check_completed", "watchTaskId": int, "slots": [{"dateTime": str, "office": str}, ...], "checkedAt": str}`
+  - `{"type": "captcha_required", "watchTaskId": int, "occurredAt": str}`
+  - `{"type": "check_failed", "watchTaskId": int, "reason": str, "occurredAt": str}`
+  `Infrastructure/Watcher/Messaging/WorkerEventRouter` decodes the JSON and routes by `type` to the
+  matching Handle*UseCase — the inbound counterpart to `WorkerCommand`.
+- **`HandleCaptchaRequiredUseCase` doesn't change `WatchTask` status** — it stays `RUNNING`. The
+  manual captcha-solving UX (via the CDP screencast relay) isn't designed yet (Phase 9 still marks
+  it "scope TBD"), so this use case only validates the `WatchTask` exists and raises
+  `CaptchaInterventionRequiredEvent`; there's deliberately no new status for "awaiting captcha."
+- **Only `CheckFailedEvent` gets a new notification listener** (`SendNotificationOnCheckFailedListener`,
+  registered in `WatcherServiceProvider::boot()`) — a user should know their watch stopped.
+  `CaptchaInterventionRequiredEvent` intentionally has no listener yet, for the same Phase
+  9-not-designed reason above; adding one now would mean guessing at a UX that doesn't exist.
+- **Testing-strategy limitation, by design:** `ConsumeWatcherEventsCommand::handle()` blocks forever
+  inside `Redis::subscribe()` (same shape as `queue:work`), so it isn't and can't be driven by a
+  test. All the actual logic — JSON decoding, routing by `type`, use-case dispatch, `WatchTask`
+  state transitions, Domain event raising — lives in `WorkerEventRouter` and the three use cases,
+  which are fully covered: unit tests per use case (mocked repository/dispatcher, matching the
+  Phase 3 pattern) plus `WorkerEventRouterIntegrationTest` (Feature test, real repository/DB,
+  `Event::fake()`) exercising all three event types end-to-end. Only the outermost `subscribe()`
+  wiring itself goes untested, same as Laravel's own `queue:work` loop.
 
 ## Phase 6 — Applicant data protection
 

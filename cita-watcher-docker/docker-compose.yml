@@ -85,7 +85,7 @@ services:
   event-consumer:
     build: *app-build
     restart: unless-stopped
-#    command: ["php", "artisan", "watcher:consume-events"] Раскомментировать после добавления команды
+    command: ["php", "artisan", "watcher:consume-events"]
     environment:
       DB_HOST: db
       REDIS_HOST: redis

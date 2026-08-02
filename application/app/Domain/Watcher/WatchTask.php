@@ -95,6 +95,16 @@ final class WatchTask
     }
 
     /**
+     * A completed check found no slots yet — go back to PENDING so the next scheduled dispatch
+     * (see DispatchDueAvailabilityChecksCommand) picks this WatchTask up again. Distinct from
+     * complete(), which is reserved for "slots found, done watching".
+     */
+    public function recheck(): void
+    {
+        $this->transitionTo(WatchTaskStatusEnum::PENDING, from: [WatchTaskStatusEnum::RUNNING]);
+    }
+
+    /**
      * @param list<WatchTaskStatusEnum> $from
      */
     private function transitionTo(WatchTaskStatusEnum $to, array $from): void

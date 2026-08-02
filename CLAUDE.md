@@ -19,20 +19,21 @@ The repo is a monorepo with three independent parts, each with its own toolchain
 - `cita-watcher-docker/` — Dockerfiles, nginx config, and the `docker-compose.yml` that wires
   everything together for local/dev/prod runs. See `cita-watcher-docker/CLAUDE.md`.
 
-**Project stage:** on the Laravel side, `Domain/Watcher`, `Infrastructure/Watcher` (persistence and
-outbound Redis messaging), and `Application/Watcher` (use cases, the `WorkerGatewayInterface` port,
-the `SlotsFoundEvent` notification listener) are implemented, including the Phase 4 outbound
-command dispatch (`RedisWorkerGateway`, `DispatchAvailabilityCheckJob`, and its scheduled
-`watcher:dispatch-due-checks` command) — see `docs/APPLICATION_ROADMAP.md` Phases 1–4. The inbound
-`event-consumer`, applicant data encryption, and any `WatchTask` HTTP Presentation layer are still
-outstanding (Phases 5–7); only `User`, the base `Controller`, and the Phase 4 job/console command
-exist as Presentation-layer pieces so far. `node-worker/src/index.ts` is still an empty stub — its
-`messaging/` module (Phase 3 of `docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so the
-`WorkerCommand` payload shape `RedisWorkerGateway` publishes is not yet a confirmed contract; the
-`event-consumer` service and its `watcher:consume-events` artisan command also don't exist yet (the
-line is commented out in `docker-compose.yml`). Check the relevant roadmap
-(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
-piece exists.
+**Project stage:** on the Laravel side, `Domain/Watcher`, `Infrastructure/Watcher`, and
+`Application/Watcher` are fully implemented through Phase 5 of `docs/APPLICATION_ROADMAP.md`: both
+outbound command dispatch to node-worker (Phase 4 — `RedisWorkerGateway`,
+`DispatchAvailabilityCheckJob`, the scheduled `watcher:dispatch-due-checks` command) and inbound
+event consumption from node-worker (Phase 5 — the `watcher:consume-events` artisan command,
+`WorkerEventRouter`, and the `HandleCheckCompletedUseCase`/`HandleCaptchaRequiredUseCase`/
+`HandleCheckFailedUseCase` use cases) now exist and are wired up in `docker-compose.yml`. Applicant
+data encryption and any `WatchTask` HTTP Presentation layer are still outstanding (Phases 6–7);
+only `User`, the base `Controller`, and the Phase 4/5 jobs/console commands exist as
+Presentation-layer pieces so far. `node-worker/src/index.ts` is still an empty stub — its
+`messaging/` module (Phase 3 of `docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so **neither**
+side of the Redis contract (`WorkerCommand` outbound, the `watcher-events` payloads inbound) is
+confirmed against a real node-worker implementation yet, only against each other's roadmap notes.
+Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before
+assuming a later phase's piece exists.
 
 ## Cross-service architecture
 
@@ -45,9 +46,11 @@ authoritative description of how the services talk to each other. Summary:
 - **app** (php-fpm) is the Laravel application.
 - **queue-worker** runs `php artisan queue:work redis --queue=watcher-commands` — this is the
   outbound direction: Laravel → node-worker commands.
-- **event-consumer** (not yet implemented) will consume events from the node-worker
-  (`CheckCompleted` / `CaptchaRequired` / `CheckFailed`) via Redis pub/sub — the inbound
-  direction: node-worker → Laravel.
+- **event-consumer** runs `php artisan watcher:consume-events`, subscribing to the single
+  `watcher-events` Redis pub/sub channel (`CheckCompleted` / `CaptchaRequired` / `CheckFailed`,
+  distinguished by a `type` field) — the inbound direction: node-worker → Laravel. Laravel's side
+  is implemented; node-worker doesn't publish to this channel yet (its `messaging/` module is still
+  Phase 3 of `docs/NODE_WORKER_ROADMAP.md`).
 - **scheduler** runs `php artisan schedule:work`.
 - **node-worker** is Playwright + the CDP screencast relay; it owns real browser sessions and does
   the actual site automation.

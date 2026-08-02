@@ -8,8 +8,11 @@ directory. See the repo-root `CLAUDE.md` for the overall monorepo/cross-service 
 Dockerfiles, nginx config, and the `docker-compose.yml` that wires together the Laravel app, the
 node-worker, and their supporting services for local/dev/prod runs.
 
-**Project stage:** the `event-consumer` service and its `watcher:consume-events` artisan command
-don't exist yet — the line is commented out in `docker-compose.yml`. Don't assume it's running.
+**Project stage:** the `event-consumer` service now runs `php artisan watcher:consume-events`
+(Laravel-side implementation is done — see `../docs/APPLICATION_ROADMAP.md` Phase 5). node-worker
+doesn't publish to the `watcher-events` channel it subscribes to yet — its `messaging/` module is
+still Phase 3 of `../docs/NODE_WORKER_ROADMAP.md` — so the consumer runs but has nothing to consume
+in practice until that lands.
 
 ## Service wiring
 
@@ -22,9 +25,9 @@ the services talk to each other. Summary:
 - **app** (php-fpm) is the Laravel application.
 - **queue-worker** runs `php artisan queue:work redis --queue=watcher-commands` — this is the
   outbound direction: Laravel → node-worker commands.
-- **event-consumer** (not yet implemented) will consume events from the node-worker
-  (`CheckCompleted` / `CaptchaRequired` / `CheckFailed`) via Redis pub/sub — the inbound
-  direction: node-worker → Laravel.
+- **event-consumer** runs `php artisan watcher:consume-events`, subscribing to the single
+  `watcher-events` Redis pub/sub channel (`CheckCompleted` / `CaptchaRequired` / `CheckFailed`,
+  distinguished by a `type` field) — the inbound direction: node-worker → Laravel.
 - **scheduler** runs `php artisan schedule:work`.
 - **node-worker** is Playwright + the CDP screencast relay; it owns real browser sessions and does
   the actual site automation.

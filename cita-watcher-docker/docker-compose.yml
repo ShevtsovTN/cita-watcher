@@ -136,6 +136,8 @@ services:
     image: redis:8.8-alpine
     restart: unless-stopped
     command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:${REDIS_FORWARD_PORT:-6379}:6379" # dev-only: lets host tools (PhpStorm) connect
     volumes:
       - redis-data:/data
     healthcheck:
@@ -153,6 +155,8 @@ services:
       POSTGRES_DB: ${DB_DATABASE:-cita_watcher}
       POSTGRES_USER: ${DB_USERNAME:-cita_watcher}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set in docker/.env}
+    ports:
+      - "127.0.0.1:${DB_FORWARD_PORT:-5432}:5432" # dev-only: lets host tools (PhpStorm, psql) connect
     volumes:
       - db-data:/var/lib/postgresql
     healthcheck:

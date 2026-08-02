@@ -1,8 +1,10 @@
 # node-worker Roadmap
 
-Status: planning. `../node-worker/src/index.ts` is currently empty; `../node-worker/src/config.ts` is the only
-implemented module. This document sequences the work needed to reach a complete,
-production-ready worker as described in the root `../CLAUDE.md`.
+Status: Phase 0 done. `../node-worker/src/index.ts` is still an empty stub;
+`../node-worker/src/config.ts`, `types.ts`, and `session-token.ts` are the only implemented
+modules — `automation/`, `captcha/`, and `messaging/` themselves don't exist as directories yet
+(Phases 1–3). This document sequences the work needed to reach a complete, production-ready worker
+as described in the root `../CLAUDE.md`.
 
 Three module boundaries are assumed throughout, per `../CLAUDE.md`'s "Node worker" section:
 
@@ -14,19 +16,75 @@ Three module boundaries are assumed throughout, per `../CLAUDE.md`'s "Node worke
 Each depends on the others only through interfaces/types it owns — no reaching across
 folders for concrete classes.
 
-## Phase 0 — Shared foundations
+## Phase 0 — Shared foundations ✅ done
 
-- [ ] Add an ESLint config (`../node-worker/package.json` already wires `npm run lint`, but no config
-      is committed yet — CLAUDE.md flags this explicitly).
-- [ ] Set up `vitest` config/test scaffolding (`npm test` is wired but no tests exist).
-- [ ] Define shared domain types in a neutral location (e.g. `src/types.ts` or per-module
+- [x] Add an ESLint config (`../node-worker/package.json` already wires `npm run lint`, but no config
+      is committed yet — CLAUDE.md flags this explicitly). Added `eslint.config.mjs` (flat config,
+      required by ESLint 9) using `typescript-eslint`'s `strictTypeChecked` preset — matches the
+      strictness already baked into `tsconfig.json`. `.mjs` (not `.js`) because `package.json` has
+      no `"type": "module"`; a plain `.js` config using `import`/`export` would be parsed as
+      CommonJS and fail. Neither `typescript-eslint` nor `globals` (needed for the Node global
+      env) were installed at all — added both as devDependencies.
+- [x] Set up `vitest` config/test scaffolding (`npm test` is wired but no tests exist). Added
+      `vitest.config.ts` (`environment: "node"`, `include: ["src/**/*.test.ts"]`, `globals: false`
+      — explicit `import { describe, it, expect } from "vitest"`, matching the codebase's
+      no-implicit-magic style) plus the first real tests: `config.test.ts` (the one existing
+      module, `loadConfig`, had zero coverage before this) and `session-token.test.ts`. Test files
+      are colocated next to their subject in `src/` (`config.test.ts` beside `config.ts`), not a
+      separate `tests/` tree — `tsconfig.json`'s pre-existing `"exclude": [..., "**/*.test.ts"]`
+      already implied this layout.
+- [x] Define shared domain types in a neutral location (e.g. `src/types.ts` or per-module
       `types.ts` files): `WorkerCommand`, `CheckResult`, `AppointmentSlot`, and the three
       outbound event shapes (`CheckCompletedEvent`, `CaptchaRequiredEvent`,
       `CheckFailedEvent`) — these are the interfaces `automation`, `captcha`, and
-      `messaging` will depend on instead of each other's concrete classes.
-- [ ] Decide session-identity shape: what a "session token" looks like, since it's
+      `messaging` will depend on instead of each other's concrete classes. Added as a `src/types/`
+      directory (not per-module files yet — `automation/`/`captcha/`/`messaging/` don't exist as
+      directories yet, so there's nothing to scope per-module types to today; revisit once Phase 1+
+      actually creates those folders and wants their own narrower types), split by concern —
+      `commands.ts` (`Procedure`, `ApplicantData`, `WorkerCommand`), `check-result.ts`
+      (`AppointmentSlot`, `CheckResult`), `events.ts` (`CheckCompletedEvent`,
+      `CaptchaRequiredEvent`, `CheckFailedEvent`, `WorkerEvent`) — with `index.ts` re-exporting all
+      three so the rest of the codebase imports from `./types`, never from the individual files
+      inside it. Shapes mirror exactly what's documented in this file's own Phase 3 section,
+      including Phase 8's `commandId`/`retryable` additions from the Laravel side.
+- [x] Decide session-identity shape: what a "session token" looks like, since it's
       embedded directly in the `/captcha-ws/` path and used to bind a WS connection to a
-      CDP/Chromium session (nginx does no auth — the worker is the only validator).
+      CDP/Chromium session (nginx does no auth — the worker is the only validator). Added
+      `src/session-token.ts`: `SessionToken` (opaque string) + `generateSessionToken()` via
+      `crypto.randomBytes(32).toString("base64url")` — 256 bits of raw entropy, URL-safe, no
+      padding. Chosen over `crypto.randomUUID()` specifically because this token is a bearer-style
+      secret embedded in a URL with zero other authentication (see the module's own docblock) —
+      UUIDs carry less entropy (~122 bits) and a recognizable structure, which matters more here
+      than for an ordinary identifier.
+
+**Changes not in the original checklist / open follow-up:**
+- **`CaptchaRequiredEvent` doesn't carry the session token or a `/captcha-ws/` URL yet** — Laravel
+  currently has no way to hand a human a link to actually solve the captcha once one is needed.
+  Deliberately not resolved in this phase (`session-token.ts`'s docblock flags it): the token's
+  *shape* is Phase 0's job; deciding when it gets generated, how it's bound to a session, and
+  whether it needs to travel in the outbound event is Phase 2 (`captcha/`, once a token is actually
+  bound to something) or Phase 3 (`messaging/`, if it needs to ride in `CaptchaRequiredEvent`) — and
+  the latter would also need a matching change to `../application`'s
+  `CaptchaInterventionRequiredEvent`/`HandleCaptchaRequiredUseCase`, which don't have a field for it
+  either. Don't let this stay silently forgotten once Phase 2/3 start.
+- **Pre-existing, unrelated `npm audit` findings**: 7 vulnerabilities (1 critical: `vitest`; 2 high:
+  `ws`, `brace-expansion`; 2 moderate: `esbuild` via `tsx`; 2 low: `eslint`'s own
+  `@eslint/plugin-kit`) — all in already-pinned dependencies (`eslint`, `tsx`, `vitest`, `ws`), none
+  introduced by this phase's `typescript-eslint`/`globals` additions. Fixing means bumping pinned
+  versions beyond `package.json`'s stated ranges (`npm audit fix --force`) — a separate decision,
+  not made here.
+- **`node-worker/.gitignore` was a near-verbatim copy of the Laravel app's** (`/vendor`,
+  `_ide_helper.php`, `.phpunit.cache`, etc. — nothing Node/TS-specific, and no `dist/` entry at
+  all). Replaced with a proper Node/TS `.gitignore` (`/dist`, `*.tsbuildinfo`, `/coverage`, etc.).
+- **Dev container permission gaps found while verifying `npm install`/`npm run build`** (not fixed,
+  just worked around for this session): the `node-worker` compose service has no `user:` override
+  (unlike `app`/`queue-worker`/etc., which run as `${DOCKER_UID}:${DOCKER_GID}`), so
+  bind-mounted-file writes (`npm install` touching `package.json`, `tsc` writing `dist/`) fail as
+  the image's fixed `pwuser`. Worked around per-command via a one-off `docker compose exec -u root`,
+  chowning back to the host UID afterward for bind-mounted files. Not fixed at the compose level
+  here — unlike the PHP services, changing node-worker's runtime user risks breaking
+  Playwright's `pwuser`-relative paths (browser binaries, `$HOME`), which needs real verification,
+  not a speculative change made in passing.
 
 ## Phase 1 — Automation core (`automation/`)
 

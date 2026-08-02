@@ -9,8 +9,12 @@ TypeScript + Playwright worker: drives a real browser against
 `sede.administracionespublicas.gob.es` and exposes a CDP screencast relay over WebSocket so a
 human can solve captchas manually when the automated flow hits one.
 
-**Project stage:** `src/index.ts` is currently an empty stub — don't assume automation/messaging
-logic exists yet; check before referencing it.
+**Project stage:** Phase 0 (`../docs/NODE_WORKER_ROADMAP.md`) is done — `src/types/` (shared domain
+types matching the Laravel-side wire contract, split into `commands.ts`/`check-result.ts`/`events.ts`
+behind an `index.ts` barrel) and `src/session-token.ts` (`SessionToken`/`generateSessionToken()`)
+exist, plus a committed ESLint flat config and vitest scaffolding with real tests. `src/index.ts` is
+still an empty stub — don't assume automation/captcha/messaging logic exists yet (Phases 1–3);
+check before referencing it.
 
 ## Conventions
 
@@ -62,6 +66,17 @@ inward."
 npm run dev         # tsx watch src/index.ts — live reload during development
 npm run build        # tsc -p tsconfig.json -> dist/
 npm run typecheck    # tsc --noEmit
-npm run lint          # eslint src --ext .ts (no eslint config committed yet — add one before relying on this)
+npm run lint          # eslint src (flat config: eslint.config.mjs, typescript-eslint strictTypeChecked)
 npm test              # vitest run
 ```
+
+Run these inside the `node-worker` container (`docker compose -f cita-watcher-docker/docker-compose.yml exec node-worker <cmd>`) so Node/dependency versions match the image, not whatever's on the host.
+
+**Known dev-container gap:** the `node-worker` compose service has no `user:` override (unlike the
+PHP services, which run as `${DOCKER_UID}:${DOCKER_GID}`), so commands that write to the
+bind-mounted source dir (`npm install`, `npm run build`) fail as the image's fixed `pwuser` —
+`EACCES` on `package.json`/`dist/`. Work around per-command with
+`docker compose exec -u root node-worker <cmd>`, then `chown` any bind-mounted files it touched
+back to the host UID. Not fixed at the compose level — changing node-worker's runtime user risks
+breaking Playwright's `pwuser`-relative paths (browser binaries, `$HOME`) and needs real
+verification once `automation/` (Phase 1) actually launches a browser, not a speculative change.

@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Application\Watcher\UseCases;
 
-use App\Application\Watcher\UseCases\DeleteWatchTaskUseCase;
+use App\Application\Watcher\UseCases\GetWatchTaskUseCase;
 use App\Domain\Watcher\Enums\WatchTaskNotificationChannelEnum;
 use App\Domain\Watcher\Exceptions\WatchTaskNotFoundException;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
@@ -15,30 +15,28 @@ use Mockery;
 use Mockery\Adapter\Phpunit\MockeryPHPUnitIntegration;
 use PHPUnit\Framework\TestCase;
 
-final class DeleteWatchTaskUseCaseTest extends TestCase
+final class GetWatchTaskUseCaseTest extends TestCase
 {
     use MockeryPHPUnitIntegration;
 
-    public function test_it_deletes_the_watch_task_via_the_repository(): void
+    public function test_it_returns_the_watch_task_when_owned_by_the_requesting_user(): void
     {
         $watchTask = $this->makeWatchTask();
 
         $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
         $repository->shouldReceive('find')->once()->with(42)->andReturn($watchTask);
-        $repository->shouldReceive('delete')->once()->with($watchTask);
 
-        $useCase = new DeleteWatchTaskUseCase($repository);
+        $useCase = new GetWatchTaskUseCase($repository);
 
-        $useCase->execute(42, requestingUserId: 7);
+        $this->assertSame($watchTask, $useCase->execute(42, requestingUserId: 7));
     }
 
     public function test_it_throws_when_the_watch_task_does_not_exist(): void
     {
         $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
         $repository->shouldReceive('find')->once()->with(99)->andReturn(null);
-        $repository->shouldNotReceive('delete');
 
-        $useCase = new DeleteWatchTaskUseCase($repository);
+        $useCase = new GetWatchTaskUseCase($repository);
 
         $this->expectException(WatchTaskNotFoundException::class);
 
@@ -51,9 +49,8 @@ final class DeleteWatchTaskUseCaseTest extends TestCase
 
         $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
         $repository->shouldReceive('find')->once()->with(42)->andReturn($watchTask);
-        $repository->shouldNotReceive('delete');
 
-        $useCase = new DeleteWatchTaskUseCase($repository);
+        $useCase = new GetWatchTaskUseCase($repository);
 
         $this->expectException(WatchTaskNotFoundException::class);
 

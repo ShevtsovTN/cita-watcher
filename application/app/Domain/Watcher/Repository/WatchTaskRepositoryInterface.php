@@ -23,4 +23,9 @@ interface WatchTaskRepositoryInterface
      * @return list<WatchTask>
      */
     public function findPending(): array;
+
+    /**
+     * @return list<WatchTask>
+     */
+    public function findByUserId(int $userId): array;
 }

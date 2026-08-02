@@ -8,7 +8,12 @@ use App\Domain\Watcher\Exceptions\WatchTaskNotFoundException;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
 use App\Domain\Watcher\WatchTask;
 
-final readonly class ResumeWatchTaskUseCase
+/**
+ * Ownership-checked single-WatchTask lookup, backing the Presentation layer's "show" endpoint —
+ * kept as its own use case (rather than a direct repository call from the controller) so every
+ * controller action goes through Application, none reach into Domain/Infrastructure directly.
+ */
+final readonly class GetWatchTaskUseCase
 {
     public function __construct(
         private WatchTaskRepositoryInterface $repository,
@@ -22,8 +27,6 @@ final readonly class ResumeWatchTaskUseCase
             throw WatchTaskNotFoundException::withId($watchTaskId);
         }
 
-        $watchTask->resume();
-
-        return $this->repository->save($watchTask);
+        return $watchTask;
     }
 }

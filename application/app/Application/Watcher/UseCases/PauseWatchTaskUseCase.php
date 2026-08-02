@@ -14,11 +14,11 @@ final readonly class PauseWatchTaskUseCase
         private WatchTaskRepositoryInterface $repository,
     ) {}
 
-    public function execute(int $watchTaskId): WatchTask
+    public function execute(int $watchTaskId, int $requestingUserId): WatchTask
     {
         $watchTask = $this->repository->find($watchTaskId);
 
-        if (null === $watchTask) {
+        if (null === $watchTask || $watchTask->userId() !== $requestingUserId) {
             throw WatchTaskNotFoundException::withId($watchTaskId);
         }
 

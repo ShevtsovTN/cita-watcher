@@ -57,9 +57,18 @@ current early scaffold to a complete Laravel side of Cita Watcher, as described 
   `Illuminate\Contracts\Encryption\Encrypter`, `APP_KEY`-backed), called from
   `EloquentWatchTaskRepository` on every `save()`/`find()`/`findPending()`. `watch_tasks.applicant_data`
   is a single ciphertext column — see the Phase 6 notes below.
-- Phase 0 through Phase 6 (below) are complete.
-- Only `User` and the base `Controller` exist as Presentation-layer HTTP pieces (plus the Phase 4/5
-  jobs/console commands above) — no `WatchTask` HTTP controllers yet (Phase 7).
+- `App\Presentation\Http\Controllers\WatchTaskController` (index/show/store/pause/resume/destroy)
+  under `routes/api.php`, protected by Sanctum (`laravel/sanctum`, token-only, no login endpoint —
+  see the Phase 7 notes below) via `auth:sanctum`. Backed by
+  `Application\Watcher\UseCases\{ListWatchTasksUseCase,GetWatchTaskUseCase}` (new;
+  `WatchTaskRepositoryInterface::findByUserId()` backs the former) plus the existing
+  Create/Pause/Resume/Delete use cases, which now take a `$requestingUserId` and enforce ownership.
+  `CreateWatchTaskRequest` validates input; `WatchTaskResource` formats responses (omitting
+  `documentId`). Domain exceptions are mapped to HTTP statuses in `bootstrap/app.php`. All with
+  tests — see the Phase 7 notes below.
+- Phase 0 through Phase 7 (below) are complete.
+- `User`, the base `Controller`, `WatchTaskController`, and the Phase 4/5 jobs/console commands are
+  the Presentation layer so far.
 
 Every phase below follows the layering and DDD/SOLID conventions in `../application/CLAUDE.md` —
 new business capabilities get their own `Domain/<Context>`, `Application/<Context>`,
@@ -353,14 +362,60 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   needs the real name/DNI/email to fill the government form. That's in-flight operational data, not
   "logs," and stays out of Phase 6's scope per the Phase 4 notes.
 
-## Phase 7 — Presentation layer
+## Phase 7 — Presentation layer ✅ done
 
-- [ ] HTTP controllers under `Presentation/Http/Controllers` for `WatchTask` CRUD (create/pause/
+- [x] HTTP controllers under `Presentation/Http/Controllers` for `WatchTask` CRUD (create/pause/
       resume/delete), calling Phase 3 use cases only — no business logic in controllers.
-- [ ] Form requests / validation for `Procedure` and `ApplicantData` input.
-- [ ] Auth: confirm whether `WatchTask` ownership ties to the existing `User` model or needs its
-      own actor concept; wire route middleware accordingly.
-- [ ] API/feature tests per endpoint using the existing `tests/Feature` structure.
+      Implemented as `WatchTaskController` (index/show/store/pause/resume/destroy) — `index`/`show`
+      needed their own new use cases, see notes below.
+- [x] Form requests / validation for `Procedure` and `ApplicantData` input. `CreateWatchTaskRequest`
+      validates `province`/`tramiteCode`/`fullName`/`documentId`/`email`/`phone`/
+      `notificationChannel`/`notificationTarget` (camelCase, matching the Phase 4/5 Redis wire
+      contracts' naming convention).
+- [x] Auth: confirm whether `WatchTask` ownership ties to the existing `User` model or needs its
+      own actor concept; wire route middleware accordingly. Ownership ties to `User` (already true
+      since Phase 1 — `WatchTask::userId`). The actual open question was how requests authenticate
+      at all, since no login/registration flow existed anywhere in the app — see notes below.
+- [x] API/feature tests per endpoint using the existing `tests/Feature` structure.
+      `WatchTaskControllerTest` covers all six actions plus ownership/transition/validation error
+      paths and the unauthenticated case.
+
+**Changes not in the original checklist:**
+- **Auth mechanism: Laravel Sanctum, token-only, no login/registration endpoint.** Installed
+  `laravel/sanctum`, added `HasApiTokens` to `User`, protected `routes/api.php` with
+  `auth:sanctum`. No `POST /login` exists — this app has no self-service signup anywhere, so a
+  `User` and their token are created operationally (`php artisan tinker` /
+  `$user->createToken(...)->plainTextToken`), not through an HTTP flow. Tests use Sanctum's
+  `Sanctum::actingAs()` helper, which doesn't need a real token either. Revisit if this ever needs
+  more than a small, operator-managed set of users.
+- **`PauseWatchTaskUseCase`/`ResumeWatchTaskUseCase`/`DeleteWatchTaskUseCase` signatures changed**
+  from `execute(int $watchTaskId)` to `execute(int $watchTaskId, int $requestingUserId)`. None of
+  them checked ownership before this phase — once exposed over HTTP that's a real IDOR (any
+  authenticated user could pause/resume/delete any other user's `WatchTask` by guessing an id).
+  A mismatch throws the same `WatchTaskNotFoundException` as a missing id (mapped to 404, not a
+  separate 403/`Forbidden` exception) — deliberately, so a request can't distinguish "id doesn't
+  exist" from "id belongs to someone else."
+- **Two new use cases not in the checklist**: `ListWatchTasksUseCase` (`execute(int $requestingUserId): array`,
+  backs `index`) and `GetWatchTaskUseCase` (ownership-checked single lookup, backs `show`). The
+  checklist's "CRUD (create/pause/resume/delete)" didn't list read endpoints at all, but a watcher
+  app with no way to see your own watch tasks isn't usable — added `WatchTaskRepositoryInterface::findByUserId()`
+  to back `ListWatchTasksUseCase`. Every controller action goes through a use case, including
+  reads — none call the repository directly, keeping the "no business logic in controllers" rule
+  from applying inconsistently to writes vs. reads.
+- **`WatchTaskResource` omits `documentId`** from every JSON response (`fullName`/`email`/`phone`
+  are still included). Phase 6 just finished encrypting `ApplicantData` at rest specifically
+  because it's sensitive; echoing the DNI/NIE back on every create/pause/resume/show response would
+  undercut that for no real benefit (the caller already knows their own document id).
+- **Domain exception → HTTP status mapping centralized in `bootstrap/app.php`'s `withExceptions()`**,
+  not in controllers: `WatchTaskNotFoundException` → 404, `InvalidWatchTaskTransitionException` →
+  409 (e.g. pausing an already-`COMPLETED`/`FAILED` task), `InvalidProcedureException`/
+  `InvalidApplicantDataException`/`InvalidWatchTaskException` → 422. Registered as individual
+  `$exceptions->render()` closures rather than one closure for a shared parent type, since
+  `Illuminate\Foundation\Exceptions\Handler::renderViaCallbacks()` matches callbacks in
+  registration order — a shared-parent catch-all registered before the specific ones would shadow
+  them.
+- **`routes/api.php` needed adding to `bootstrap/app.php`'s `withRouting()`** — only `web` and
+  `commands` were registered before this phase; there was no API route file at all.
 
 ## Phase 8 — Hardening & observability
 

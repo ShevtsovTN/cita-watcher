@@ -31,7 +31,7 @@ final class ResumeWatchTaskUseCaseTest extends TestCase
 
         $useCase = new ResumeWatchTaskUseCase($repository);
 
-        $result = $useCase->execute(42);
+        $result = $useCase->execute(42, requestingUserId: 7);
 
         $this->assertSame(WatchTaskStatusEnum::PENDING, $result->status());
     }
@@ -45,7 +45,23 @@ final class ResumeWatchTaskUseCaseTest extends TestCase
 
         $this->expectException(WatchTaskNotFoundException::class);
 
-        $useCase->execute(99);
+        $useCase->execute(99, requestingUserId: 7);
+    }
+
+    public function test_it_throws_when_the_requesting_user_does_not_own_the_watch_task(): void
+    {
+        $watchTask = $this->makeWatchTask();
+        $watchTask->pause();
+
+        $repository = Mockery::mock(WatchTaskRepositoryInterface::class);
+        $repository->shouldReceive('find')->once()->with(42)->andReturn($watchTask);
+        $repository->shouldNotReceive('save');
+
+        $useCase = new ResumeWatchTaskUseCase($repository);
+
+        $this->expectException(WatchTaskNotFoundException::class);
+
+        $useCase->execute(42, requestingUserId: 999);
     }
 
     private function makeWatchTask(): WatchTask

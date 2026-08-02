@@ -61,6 +61,15 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
             ->all();
     }
 
+    public function findByUserId(int $userId): array
+    {
+        return WatchTaskModel::query()
+            ->where('user_id', $userId)
+            ->get()
+            ->map(fn(WatchTaskModel $model): WatchTask => $this->toDomain($model))
+            ->all();
+    }
+
     private function toDomain(WatchTaskModel $model): WatchTask
     {
         return new WatchTask(

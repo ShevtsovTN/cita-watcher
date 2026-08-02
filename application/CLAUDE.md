@@ -8,18 +8,18 @@ See the repo-root `CLAUDE.md` for the overall monorepo/cross-service picture.
 Laravel 13 (PHP 8.4) app: orchestrates watch tasks, persists state, dispatches commands to the
 node-worker, and (eventually) consumes result events back from it.
 
-**Project stage:** `Domain/Watcher`, `Infrastructure/Watcher` (persistence + Phase 4/5 Redis
-messaging + Phase 6 encryption), and `Application/Watcher` (use cases, ports, listeners) are fully
-implemented through Phase 6 — outbound command dispatch to node-worker (Phase 4:
-`RedisWorkerGateway`, `DispatchAvailabilityCheckJob`, `watcher:dispatch-due-checks`), inbound event
-consumption from node-worker (Phase 5: `watcher:consume-events`, `WorkerEventRouter`, the three
-`Handle*UseCase`s), and applicant data encryption at rest (Phase 6:
-`ApplicantDataEncryptorInterface` → `LaravelApplicantDataEncryptor`, wired into
-`EloquentWatchTaskRepository`; `watch_tasks.applicant_data` is one ciphertext column, not 4 plain
-ones) — see `../docs/APPLICATION_ROADMAP.md` Phases 1–6 for what exists and their tests. Still
-missing: any `WatchTask` HTTP Presentation layer (Phase 7) — only `User`, the base `Controller`,
-and the Phase 4/5 jobs/console commands exist under `Presentation` so far. Check the roadmap before
-assuming a later phase's piece exists.
+**Project stage:** `Domain/Watcher`, `Infrastructure/Watcher`, `Application/Watcher`, and now
+`Presentation` are fully implemented through Phase 7 — outbound command dispatch to node-worker
+(Phase 4: `RedisWorkerGateway`, `DispatchAvailabilityCheckJob`, `watcher:dispatch-due-checks`),
+inbound event consumption from node-worker (Phase 5: `watcher:consume-events`, `WorkerEventRouter`,
+the three `Handle*UseCase`s), applicant data encryption at rest (Phase 6:
+`ApplicantDataEncryptorInterface` → `LaravelApplicantDataEncryptor`; `watch_tasks.applicant_data` is
+one ciphertext column), and a `WatchTask` HTTP API (Phase 7: `WatchTaskController` under
+`routes/api.php`, protected by `laravel/sanctum` — token-only, no login/registration endpoint
+exists anywhere in the app, tokens are issued operationally via tinker) — see
+`../docs/APPLICATION_ROADMAP.md` Phases 1–7 for what exists and their tests. Nothing left on this
+roadmap except Phase 8 (hardening/observability) and Phase 9 (integration verification). Check the
+roadmap before assuming a later phase's piece exists.
 
 ## Architecture principles (apply to all new business logic)
 

@@ -106,6 +106,21 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
         $this->assertSame(WatchTaskStatusEnum::PENDING, $found[0]->status());
     }
 
+    public function test_find_by_user_id_returns_only_that_users_watch_tasks(): void
+    {
+        $owner = User::factory()->create();
+        $otherUser = User::factory()->create();
+        $repository = $this->app->make(EloquentWatchTaskRepository::class);
+
+        $owned = $repository->save($this->makeWatchTask($owner->id));
+        $repository->save($this->makeWatchTask($otherUser->id));
+
+        $found = $repository->findByUserId($owner->id);
+
+        $this->assertCount(1, $found);
+        $this->assertSame($owned->id(), $found[0]->id());
+    }
+
     public function test_delete_removes_the_watch_task(): void
     {
         $user = User::factory()->create();

@@ -13,11 +13,11 @@ final readonly class DeleteWatchTaskUseCase
         private WatchTaskRepositoryInterface $repository,
     ) {}
 
-    public function execute(int $watchTaskId): void
+    public function execute(int $watchTaskId, int $requestingUserId): void
     {
         $watchTask = $this->repository->find($watchTaskId);
 
-        if (null === $watchTask) {
+        if (null === $watchTask || $watchTask->userId() !== $requestingUserId) {
             throw WatchTaskNotFoundException::withId($watchTaskId);
         }
 

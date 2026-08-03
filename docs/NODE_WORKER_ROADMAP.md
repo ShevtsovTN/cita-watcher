@@ -1,10 +1,12 @@
 # node-worker Roadmap
 
-Status: Phase 0 done. `../node-worker/src/index.ts` is still an empty stub;
-`../node-worker/src/config.ts`, `types.ts`, and `session-token.ts` are the only implemented
-modules — `automation/`, `captcha/`, and `messaging/` themselves don't exist as directories yet
-(Phases 1–3). This document sequences the work needed to reach a complete, production-ready worker
-as described in the root `../CLAUDE.md`.
+Status: Phase 0 done. Phase 1 partially done: `automation/` now exists with a
+`PlaywrightSessionManager` (browser/session lifecycle + concurrency guard + CDP access), but real
+site navigation and captcha detection are not started (see Phase 1 below — genuinely blocked on
+live reconnaissance of the real site, not just deferred). `../node-worker/src/index.ts` is still an
+empty stub; `captcha/` and `messaging/` themselves don't exist as directories yet (Phases 2–3).
+This document sequences the work needed to reach a complete, production-ready worker as described
+in the root `../CLAUDE.md`.
 
 Three module boundaries are assumed throughout, per `../CLAUDE.md`'s "Node worker" section:
 
@@ -88,15 +90,56 @@ folders for concrete classes.
 
 ## Phase 1 — Automation core (`automation/`)
 
-- [ ] Browser/session manager: launch Playwright Chromium, enforce
-      `config.maxConcurrentSessions`, expose a session's CDP endpoint for Phase 3.
+- [x] Browser/session manager: launch Playwright Chromium, enforce
+      `config.maxConcurrentSessions`, expose a session's CDP endpoint for Phase 3. Added
+      `src/automation/session-manager.ts`: `SessionManager` (role interface) /
+      `PlaywrightSessionManager` (concrete impl, following the repo's role-interface naming
+      convention), `AutomationSession` (id + `Page` + `newCdpSession()` — the CDP access
+      `captcha/`, Phase 2, will actually consume; the roadmap text above said "Phase 3" but the
+      only real CDP consumer is the captcha relay, Phase 2), `SessionLimitExceededError`. The
+      browser itself is launched lazily on first `acquire()` and reused across sessions (one
+      `Browser`, many `BrowserContext`s — cheaper and closer to how a long-lived worker process
+      should behave than relaunching Chromium per check). The concurrency guard reserves a session
+      id *synchronously*, before any `await`, specifically so concurrent `acquire()` calls can't
+      both pass a `size >= max` check before either has actually registered — a real race with a
+      naive "check size, then create context" ordering once `messaging/` (Phase 3) starts calling
+      this from multiple in-flight commands. A `browser.on("disconnected", ...)` handler clears all
+      tracked sessions if Chromium itself crashes, so a crashed browser doesn't leave the manager
+      reporting phantom active sessions forever.
 - [ ] Navigation + check flow against `sede.administracionespublicas.gob.es`: reach the
-      appointment page, submit the trámite/province selection, read slot availability.
+      appointment page, submit the trámite/province selection, read slot availability. **Not
+      started — genuinely blocked, not just deferred:** this needs the actual DOM/selectors/flow
+      of the real government site, which has to come from live reconnaissance (opening the site,
+      recording the click-through, noting form field names/ids), not something safe to guess or
+      fabricate from this repo's context alone. Do this next, and expect it to need a real (or
+      recorded/replayed) browser session against the live site to get right.
 - [ ] Captcha detection (not solving): recognize when the flow has hit a captcha and
-      surface that as a state, without yet wiring it anywhere.
+      surface that as a state, without yet wiring it anywhere. Blocked on the same reconnaissance
+      as the item above — captcha detection has to key off whatever the real page actually shows.
 - [ ] Session cleanup/teardown on success, failure, and crash (no leaked Chromium
-      processes).
-- [ ] Unit tests with a fake/mocked Playwright layer.
+      processes). Partially covered by `PlaywrightSessionManager.release()`/`closeAll()`/the
+      `disconnected` handler above, but "on success, failure" specifically describes the check
+      flow's own try/finally around `acquire()`/`release()`, which doesn't exist until the item
+      above does.
+- [x] Unit tests with a fake/mocked Playwright layer — `src/automation/session-manager.test.ts`,
+      10 cases (lazy/single browser launch, per-session id/context/page isolation, the concurrency
+      guard including the race described above, release semantics including the double-release
+      no-op case, CDP session exposure, `closeAll`, crash/disconnect handling, relaunch after a
+      crash) against hand-built fakes of Playwright's `Browser`/`BrowserContext`, not real
+      Playwright. Covers only what this phase actually built (the session manager) — the check-flow
+      unit tests this item ultimately implies still need the navigation logic above to exist first.
+
+**Verification for this increment:** `npm run typecheck`, `npm run lint`, and `npm test` all pass
+(run via a throwaway `node:22-slim` container with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, since the
+dev container wasn't available in this session — see node-worker/CLAUDE.md's "Known dev-container
+gap" for the normal way to run these). Fixed two pre-existing gaps this surfaced along the way,
+unrelated to session-manager logic itself: `eslint.config.mjs`'s `allowDefaultProject` only matched
+`src/*.test.ts` (one level deep), so nested test files like this phase's own
+`src/automation/session-manager.test.ts` failed to parse — broadened to also match
+`src/*/*.test.ts`; and `@typescript-eslint/unbound-method` flags vitest's own
+`expect(fake.method).toHaveBeenCalled()` idiom as if it were the real unbound-`this` bug it exists
+to catch, so it's now turned off specifically for `**/*.test.ts` — both will affect any future test
+file, not just this one.
 
 ## Phase 2 — Captcha relay (`captcha/`)
 

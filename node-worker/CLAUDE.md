@@ -12,9 +12,15 @@ human can solve captchas manually when the automated flow hits one.
 **Project stage:** Phase 0 (`../docs/NODE_WORKER_ROADMAP.md`) is done — `src/types/` (shared domain
 types matching the Laravel-side wire contract, split into `commands.ts`/`check-result.ts`/`events.ts`
 behind an `index.ts` barrel) and `src/session-token.ts` (`SessionToken`/`generateSessionToken()`)
-exist, plus a committed ESLint flat config and vitest scaffolding with real tests. `src/index.ts` is
-still an empty stub — don't assume automation/captcha/messaging logic exists yet (Phases 1–3);
-check before referencing it.
+exist, plus a committed ESLint flat config and vitest scaffolding with real tests. Phase 1 is
+partially done: `src/automation/` now exists with `SessionManager`/`PlaywrightSessionManager`
+(Playwright browser/session lifecycle, `maxConcurrentSessions` guard, per-session CDP access for
+the future captcha relay) behind an `index.ts` barrel, tested against a hand-built fake of
+Playwright's `Browser`/`BrowserContext`. Real site navigation and captcha detection are **not**
+implemented — that needs live reconnaissance of `sede.administracionespublicas.gob.es`'s actual DOM,
+which wasn't done here. `src/index.ts` is still an empty stub, and `captcha/`/`messaging/` don't
+exist as directories yet (Phases 2–3) — don't assume that logic exists; check before referencing
+it.
 
 ## Conventions
 

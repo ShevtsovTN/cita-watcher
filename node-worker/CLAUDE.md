@@ -12,15 +12,25 @@ human can solve captchas manually when the automated flow hits one.
 **Project stage:** Phase 0 (`../docs/NODE_WORKER_ROADMAP.md`) is done — `src/types/` (shared domain
 types matching the Laravel-side wire contract, split into `commands.ts`/`check-result.ts`/`events.ts`
 behind an `index.ts` barrel) and `src/session-token.ts` (`SessionToken`/`generateSessionToken()`)
-exist, plus a committed ESLint flat config and vitest scaffolding with real tests. Phase 1 is
-partially done: `src/automation/` now exists with `SessionManager`/`PlaywrightSessionManager`
-(Playwright browser/session lifecycle, `maxConcurrentSessions` guard, per-session CDP access for
-the future captcha relay) behind an `index.ts` barrel, tested against a hand-built fake of
-Playwright's `Browser`/`BrowserContext`. Real site navigation and captcha detection are **not**
-implemented — that needs live reconnaissance of `sede.administracionespublicas.gob.es`'s actual DOM,
-which wasn't done here. `src/index.ts` is still an empty stub, and `captcha/`/`messaging/` don't
-exist as directories yet (Phases 2–3) — don't assume that logic exists; check before referencing
-it.
+exist, plus a committed ESLint flat config and vitest scaffolding with real tests. Phase 1 is mostly
+done: `src/automation/` has `SessionManager`/`PlaywrightSessionManager` (Playwright browser/session
+lifecycle, `maxConcurrentSessions` guard, per-session CDP access for the future captcha relay),
+`site-navigator.ts` (`runAvailabilityCheck` — real navigation against
+`icp.administracionelectronica.gob.es`, confirmed via live reconnaissance: province → trámite →
+either a Cl@ve-only redirect or the manual applicant form, plus WAF-rejection and "Es incorrecto"
+validation detection) with its data tables `province-routes.ts`/`country-codes.ts` and
+`document-id-validator.ts` (client-side NIE/DNI checksum), and `availability-checker.ts`
+(`checkAvailability` — the try/finally session acquire/release wrapper around a check), all behind
+the `index.ts` barrel, tested against hand-built fakes of Playwright's
+`Browser`/`BrowserContext`/`Page`/`Locator`. **Not** implemented: true captcha-widget detection —
+live recon never got past a sticky WAF block triggered by the applicant-form submit, so what a
+*clean* submit actually shows (captcha vs. "no slots" vs. a real slot listing) is unconfirmed; see
+`PostSubmitUnconfirmed` in `site-navigator.ts` and the Phase 1 write-up in the roadmap. Also open:
+`src/types/commands.ts`'s `ApplicantData` doesn't have the `documentType`/`birthYear`/`nationality`
+fields the real form needs — `site-navigator.ts` uses its own `DocumentIdentity` type for now;
+wiring the two together (and the matching Laravel-side change) is Phase 3's job. `src/index.ts` is
+still an empty stub, and `captcha/`/`messaging/` don't exist as directories yet (Phases 2–3) — don't
+assume that logic exists; check before referencing it.
 
 ## Conventions
 

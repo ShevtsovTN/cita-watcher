@@ -1,10 +1,13 @@
 # node-worker Roadmap
 
-Status: Phase 0 done. Phase 1 partially done: `automation/` now exists with a
-`PlaywrightSessionManager` (browser/session lifecycle + concurrency guard + CDP access), but real
-site navigation and captcha detection are not started (see Phase 1 below — genuinely blocked on
-live reconnaissance of the real site, not just deferred). `../node-worker/src/index.ts` is still an
-empty stub; `captcha/` and `messaging/` themselves don't exist as directories yet (Phases 2–3).
+Status: Phase 0 done. Phase 1 mostly done: `automation/` has `PlaywrightSessionManager`
+(browser/session lifecycle + concurrency guard + CDP access), a real-site navigator
+(`site-navigator.ts` + `province-routes.ts`/`country-codes.ts`/`document-id-validator.ts`) confirmed
+against `icp.administracionelectronica.gob.es` via live reconnaissance, and session-teardown
+wrapping (`availability-checker.ts`). True captcha-widget detection remains unconfirmed/unimplemented
+(see Phase 1 below — the WAF blocked recon before any captcha was ever observed).
+`../node-worker/src/index.ts` is still an empty stub; `captcha/` and `messaging/` themselves don't
+exist as directories yet (Phases 2–3).
 This document sequences the work needed to reach a complete, production-ready worker as described
 in the root `../CLAUDE.md`.
 
@@ -106,28 +109,46 @@ folders for concrete classes.
       this from multiple in-flight commands. A `browser.on("disconnected", ...)` handler clears all
       tracked sessions if Chromium itself crashes, so a crashed browser doesn't leave the manager
       reporting phantom active sessions forever.
-- [ ] Navigation + check flow against `sede.administracionespublicas.gob.es`: reach the
-      appointment page, submit the trámite/province selection, read slot availability. **Not
-      started — genuinely blocked, not just deferred:** this needs the actual DOM/selectors/flow
-      of the real government site, which has to come from live reconnaissance (opening the site,
-      recording the click-through, noting form field names/ids), not something safe to guess or
-      fabricate from this repo's context alone. Do this next, and expect it to need a real (or
-      recorded/replayed) browser session against the live site to get right.
-- [ ] Captcha detection (not solving): recognize when the flow has hit a captcha and
-      surface that as a state, without yet wiring it anywhere. Blocked on the same reconnaissance
-      as the item above — captcha detection has to key off whatever the real page actually shows.
-- [ ] Session cleanup/teardown on success, failure, and crash (no leaked Chromium
-      processes). Partially covered by `PlaywrightSessionManager.release()`/`closeAll()`/the
-      `disconnected` handler above, but "on success, failure" specifically describes the check
-      flow's own try/finally around `acquire()`/`release()`, which doesn't exist until the item
-      above does.
-- [x] Unit tests with a fake/mocked Playwright layer — `src/automation/session-manager.test.ts`,
-      10 cases (lazy/single browser launch, per-session id/context/page isolation, the concurrency
-      guard including the race described above, release semantics including the double-release
-      no-op case, CDP session exposure, `closeAll`, crash/disconnect handling, relaunch after a
-      crash) against hand-built fakes of Playwright's `Browser`/`BrowserContext`, not real
-      Playwright. Covers only what this phase actually built (the session manager) — the check-flow
-      unit tests this item ultimately implies still need the navigation logic above to exist first.
+- [x] Navigation + check flow: confirmed via live reconnaissance (Claude in Chrome against the real
+      site) that the actual booking system lives at `icp.administracionelectronica.gob.es` —
+      `sede.administracionespublicas.gob.es` is only the entry point that links out to it. Added
+      `src/automation/site-navigator.ts` (`runAvailabilityCheck`, free functions over an injected
+      `Page`, not a class — there's no cross-call state to hold), `src/automation/province-routes.ts`
+      (full ~52-province → `{basePath, id}` table; each province has its own base path —
+      `icpplus`/`icpco`/`icpplustie`/`icpplustieb`/`icpplustiem` — not a single fixed route),
+      `src/automation/country-codes.ts` (full ~190-country → numeric-code table for the "País de
+      nacionalidad" select), and `src/automation/document-id-validator.ts` (`isValidDocumentId`,
+      replicates the site's own client-side NIE/DNI mod-23 checksum so a document id already known
+      to be invalid never reaches the network). Confirmed flow: province select → one of two
+      trámite `<select>`s (matched by visible label, since the set of available trámites differs
+      per province) → either a same-page "Presentación con Cl@ve" panel (some trámites, e.g.
+      residence-permit renewals, are Cl@ve-only — `RequiresClave`, never click into it) or real
+      navigation to `/icpplus/acInfo` → "Entrar" → the applicant form `/icpplus/acEntrada` (radios
+      N.I.E./D.N.I./PASAPORTE, name, birth year, nationality) → submit. What a *clean*
+      (non-WAF-blocked) submit actually returns — captcha, "no slots", or a real slot listing — is
+      still unconfirmed; see `PostSubmitUnconfirmed` and the captcha-detection item below.
+- [ ] Captcha detection (not solving): still genuinely blocked — live reconnaissance never got past
+      a WAF (see "Changes not in the original checklist" below) that rejected the session right at
+      the applicant-form submit, before any captcha widget was ever shown. What *was* confirmed and
+      is now detected as part of the navigation work above: `RequiresClave` (a Cl@ve-gated trámite —
+      not a captcha at all), `WafRejected` (the WAF block itself), and `ValidationRejected` (the
+      site's own "Es incorrecto" inline validation). `PostSubmitUnconfirmed` is the explicit marker
+      for "a real captcha still needs to be observed" — do not replace it with guessed selectors.
+- [x] Session cleanup/teardown on success, failure, and crash (no leaked Chromium processes). Added
+      `src/automation/availability-checker.ts`'s `checkAvailability`: acquires a session, runs the
+      check (defaults to `runAvailabilityCheck`, injectable as `runCheck` for tests — same seam as
+      `PlaywrightSessionManager`'s `launchBrowser`), and releases it in a `finally`, so release
+      happens whether the check resolves an outcome or throws (unknown province/trámite/
+      nationality, or a genuine Playwright error). Complements `PlaywrightSessionManager.release()`/
+      `closeAll()`/the `disconnected` handler above, which cover session-manager-level cleanup.
+- [x] Unit tests with a fake/mocked Playwright layer — `src/automation/session-manager.test.ts` (10
+      cases, as before) plus, for this increment's additions: `site-navigator.test.ts` (10 cases —
+      one per `NavigationOutcome` branch/thrown error, using the same hand-built-fake idiom against
+      `Page`/`Locator` instead of `Browser`/`BrowserContext`), `availability-checker.test.ts` (5
+      cases covering the try/finally release semantics against a fake `SessionManager` and an
+      injected `runCheck`), and pure-data tests for `province-routes.ts`/`country-codes.ts`/
+      `document-id-validator.ts` (no Playwright fakes needed — hand-verified mod-23 checksum
+      vectors for the latter). 56 tests total across the package.
 
 **Verification for this increment:** `npm run typecheck`, `npm run lint`, and `npm test` all pass
 (run via a throwaway `node:22-slim` container with `PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1`, since the
@@ -140,6 +161,32 @@ unrelated to session-manager logic itself: `eslint.config.mjs`'s `allowDefaultPr
 `expect(fake.method).toHaveBeenCalled()` idiom as if it were the real unbound-`this` bug it exists
 to catch, so it's now turned off specifically for `**/*.test.ts` — both will affect any future test
 file, not just this one.
+
+**Changes not in the original checklist / open follow-up (navigation increment):**
+- **Sticky WAF, discovered live, not a captcha.** Submitting the applicant form
+  (`/icpplus/acEntrada` → `acValidarEntrada`) got the whole browser session rejected by what looks
+  like an F5 BIG-IP ASM WAF (title "Request Rejected", body "The requested URL was rejected...
+  Your support ID is: <...>"). After that, **previously-working URLs in the same session** started
+  returning the same rejection — the block is session/IP-scoped and sticky, not a per-request rule.
+  It also triggered once immediately on a first `citar` request for Madrid while Cuenca's worked
+  fine seconds later — unpredictable across provinces from a single session. Modeled as
+  `WafRejected` in `site-navigator.ts`; flagged here for `messaging/` (Phase 3) to eventually map
+  onto `CheckFailedEvent{retryable: true}`, since a WAF cooldown is exactly the kind of transient
+  failure worth a later scheduled retry.
+- **`ApplicantData` (`src/types/commands.ts`) is missing fields the real form actually needs** —
+  `documentType` (N.I.E./D.N.I./PASAPORTE — the wire type has no discriminator at all) plus
+  `birthYear`/`nationality` (not present either). `site-navigator.ts` defines its own
+  `DocumentIdentity` type for now rather than guessing at a wire-contract change; mapping
+  `ApplicantData` → `DocumentIdentity` — and the matching Laravel-side `WorkerCommand.php` change —
+  is left for Phase 3 once `messaging/` actually needs to bridge the two.
+- **Deliberate scope trims**, given how much of the post-submit page remains unconfirmed: no office
+  selection (the site's own "Cualquier oficina" default is exactly what a watcher wants); the
+  Cl@ve panel is detected and returned on immediately, never clicked into (there's no payoff in
+  navigating further into an external government identity login the worker can't complete anyway);
+  no guessed "success" outcome — see `PostSubmitUnconfirmed` above.
+- Both `PROVINCE_ROUTES` (~52 entries) and `COUNTRY_CODES` (~190 entries) were captured verbatim
+  from the real `<select>` options during this session's recon and are populated in full, not left
+  as partial/TODO tables.
 
 ## Phase 2 — Captcha relay (`captcha/`)
 

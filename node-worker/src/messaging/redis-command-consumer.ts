@@ -10,10 +10,19 @@
  * `SessionManager`'s собственный `SessionLimitExceededError` (см. ../automation/session-manager.ts)
  * поймает и обработает превышение постфактum: не тянуть лишнее из очереди в принципе лучше, чем
  * тянуть и сразу же отбрасывать/переставлять обратно.
+ *
+ * Phase 5: a malformed payload used to be dropped with zero visibility — `parseWorkerCommand`
+ * returning `undefined` just fell through to the next loop iteration. Now logged at `error`
+ * (something is enqueueing garbage onto `watcher-commands`, worth alerting on), but deliberately
+ * without the raw payload content — it's untrusted input that could contain applicant PII even
+ * while failing to parse as a well-formed `WorkerCommand` (same leak `../../application`'s
+ * `ApplicantDataDoesNotLeakToLogsTest` guards against on the other side), so only its byte length
+ * is logged.
  */
 
 import type { Redis } from "ioredis";
 
+import { logger as defaultLogger, type Logger } from "../logger";
 import type { WorkerCommand } from "../types";
 import { parseWorkerCommand } from "./worker-command-parser";
 
@@ -50,6 +59,7 @@ export class RedisCommandConsumer implements CommandConsumer {
         private readonly maxConcurrent: number,
         private readonly onCommand: WorkerCommandHandler,
         private readonly sleep: Sleep = defaultSleep,
+        private readonly logger: Logger = defaultLogger,
     ) {
         this.listKey = `${keyPrefix}${COMMANDS_LIST_NAME}`;
     }
@@ -96,6 +106,9 @@ export class RedisCommandConsumer implements CommandConsumer {
             const command = parseWorkerCommand(raw);
 
             if (command === undefined) {
+                this.logger.error("dropped a malformed command payload popped off watcher-commands", {
+                    payload_bytes: Buffer.byteLength(raw),
+                });
                 continue;
             }
 

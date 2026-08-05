@@ -48,7 +48,12 @@ the `watcher-commands` list, and `RedisEventPublisher` publishing `CheckComplete
 is no longer a stub either — it now wires `automation/`/`captcha/`/`messaging/` into an actual
 running process (session manager, two dedicated Redis connections, command consumer, WS relay,
 graceful shutdown, top-level error handling), verified manually against the live `docker-compose`
-dev stack (BRPOP connection alive, invalid WS tokens rejected with close code 4400). What's still
+dev stack (BRPOP connection alive, invalid WS tokens rejected with close code 4400). Phase 5
+(hardening/observability) is also done: node-worker now has structured, correlated logging
+(`command_id`/`watch_task_id`, matching Laravel's own `Log::withContext()` field names so both
+services' logs are grep-able by the same keys), publishes a `retryable: true` `CheckFailedEvent` on
+an uncaught exception instead of silently dropping the command, and exposes an HTTP health endpoint
+(`HEALTH_PORT`) backing a `docker-compose` `healthcheck:` on the `node-worker` service. What's still
 *not* confirmed end-to-end is a real Laravel-dispatched command actually being picked up and
 resulting in a published event back on `watcher-events` under real conditions — that's Phase 6 of
 `docs/NODE_WORKER_ROADMAP.md` (integration verification), not yet done; today's dev stack has never

@@ -27,6 +27,15 @@ export interface WorkerConfig {
     readonly cdpRelay: {
         readonly port: number;
     };
+    /**
+     * Phase 5 ("Health signal for the container"): a plain HTTP endpoint (`../health-server.ts`)
+     * docker-compose's `healthcheck:` polls — separate from `cdpRelay.port` since that one speaks
+     * WS-only (`WsScreencastRelay` closes any connection whose path isn't a valid
+     * `/captcha-ws/<token>`, which a healthcheck probe isn't).
+     */
+    readonly health: {
+        readonly port: number;
+    };
     readonly maxConcurrentSessions: number;
 }
 
@@ -104,6 +113,9 @@ export function loadConfig(env: EnvSource = process.env): Readonly<WorkerConfig>
         },
         cdpRelay: {
             port: parsePort(env, "CDP_RELAY_PORT", 4001),
+        },
+        health: {
+            port: parsePort(env, "HEALTH_PORT", 4002),
         },
         maxConcurrentSessions: parsePositiveInt(env, "MAX_CONCURRENT_SESSIONS", 3),
     };

@@ -1,15 +1,18 @@
 # Phase 9 dry run — outbound/inbound Watcher flow through a live `docker compose` stack
 
-This is the runbook for `docs/APPLICATION_ROADMAP.md` Phase 9's first checklist item: create a
-`WatchTask` via HTTP and verify it flows through to a notification. **node-worker doesn't exist yet**
-(`node-worker/src/index.ts` is still an empty stub — see `docs/NODE_WORKER_ROADMAP.md`), so this
-runbook simulates it by hand with `redis-cli` at the one seam where it would sit. Every other step
-exercises real, running code — nothing here is mocked.
+This is the runbook for `docs/APPLICATION_ROADMAP.md` Phase 9's first checklist item — create a
+`WatchTask` via HTTP and verify it flows through to a notification — and, since its 2026-08-05
+re-run below, also serves as `docs/NODE_WORKER_ROADMAP.md` Phase 6's first checklist item (the
+Laravel side doesn't need its own separate runbook for the same round trip).
 
-Re-run this after node-worker's messaging module (`NODE_WORKER_ROADMAP.md` Phase 3) actually exists,
-replacing steps 5 and 7 with "wait for the real node-worker to do it" instead of a manual
-`redis-cli` command — if the real thing produces the same observable results this runbook checks
-for, the contract held.
+**Original run (2026-08-02):** node-worker didn't exist yet (`node-worker/src/index.ts` was still an
+empty stub), so this runbook simulated it by hand with `redis-cli` at the one seam where it would
+sit (steps 5 and 7 below). Every other step exercised real, running code.
+
+**Re-run (2026-08-05):** node-worker's `messaging/`, `index.ts` wiring, and hardening (Phases 3-5 of
+`NODE_WORKER_ROADMAP.md`) all exist now, so this run used the **real node-worker** for steps 5 and
+7 instead of `redis-cli` — nothing in the flow is simulated anymore. See "Re-run with the real
+node-worker" below for what was observed and a third real bug it found.
 
 ## Two bugs this dry run found and fixed (2026-08-02)
 
@@ -130,16 +133,99 @@ is already up.
 8. **Clean up** the dry-run `User`/`WatchTask`/token via `tinker` (`->delete()` on each) — this
    runbook's steps create real rows in the dev database.
 
+*(Steps 5 and 7 above simulated node-worker by hand, since it didn't exist on 2026-08-02. Kept
+as-written for the record and as a still-useful fallback for exercising the Laravel side in
+isolation. See below for what actually happened once a real node-worker existed to do those steps
+itself.)*
+
+## Re-run with the real node-worker (2026-08-05)
+
+node-worker's `messaging/`/`index.ts`/hardening (`NODE_WORKER_ROADMAP.md` Phases 3-5) all exist now,
+so this re-run repeated steps 1-4 unchanged, then let the **real** node-worker do what steps 5 and 7
+used to simulate:
+
+- **Step 5' (real):** instead of a manual `redis-cli PUBLISH`, just waited — `node-worker`'s
+  `RedisCommandConsumer` had already `BRPOP`ed the command within milliseconds of step 3/4 (its
+  `BRPOP` connection is visible live via `redis-cli CLIENT LIST`, see `NODE_WORKER_ROADMAP.md`
+  Phase 4), launched a real headless Chromium session, and actually navigated to the real site.
+- **Step 7' (real):** node-worker's own logs (`docker compose logs node-worker`) showed the full,
+  correlated real outcome:
+  ```
+  [node-worker] check crashed with an unexpected error, publishing a retryable check_failed
+  command_id=1293e7b9-... watch_task_id=2 reason=Unexpected error: Trámite
+  "POLICIA-ASIGNACIÓN DE NIE" was not found in either select on this province's page
+  [node-worker] published worker event command_id=1293e7b9-... watch_task_id=2
+  type=check_failed retryable=true
+  ```
+  This is a genuine, informative result, not a failure of the dry run: `POLICIA-ASIGNACIÓN DE NIE`
+  was only ever a guessed trámite label (see `command-handler.test.ts`'s own fixture) — no exact
+  real `<select>` option text has been confirmed and recorded anywhere in the codebase since Phase
+  1's live reconnaissance. What this *does* confirm, for real: outbound network reachability from
+  the `node-worker` container to `icp.administracionelectronica.gob.es` works, the real province
+  page loads and its trámite `<select>`s get parsed, `TramiteNotFoundError` is thrown when the
+  guessed label doesn't match, and Phase 5's new catch-all in `command-handler.ts` handles that
+  exactly as designed — a retryable `CheckFailedEvent`, not a stuck `WatchTask` or a crashed
+  process. Laravel's `event-consumer` received and handled it (`Log`: `"Handled a worker event."
+  {"watch_task_id":2,"type":"check_failed"}`), and the `WatchTask` correctly went back to `pending`
+  (`HandleCheckFailedUseCase`'s retryable path) — confirmed again a few minutes later when the
+  *scheduler's own* `everyFiveMinutes()` tick re-dispatched the same still-pending `WatchTask`
+  automatically, with the identical outcome, with no manual trigger at all.
+- **Finding a real trámite label** (so a future run can get further — past province/trámite
+  selection into the actual applicant form, Cl@ve panel, or WAF) is real recon work of the same
+  kind Phase 1 already did for provinces/countries, not attempted here — guessing at more labels
+  without confirming them against the live page first would just be repeating the mistake once, not
+  fixing it.
+
+### A third bug this re-run found and fixed: `event-consumer` was crash-looping on Redis's default read timeout
+
+Checking `event-consumer`'s logs turned up something unrelated to node-worker entirely: `docker
+inspect`'s `RestartCount` was 48, and `storage/logs/laravel.log` had **150** occurrences of
+`RedisException: read error on connection to redis:6379` going back to 2026-08-04 15:26 — the
+service had been silently crash-looping for the better part of a day, on a cadence that (once
+isolated to its tightest recent run) was almost exactly every 60 seconds
+(`12:59:31 → 13:00:32 → 13:01:32 → 13:02:52 → 13:03:53`).
+
+**Root cause:** `ConsumeWatcherEventsCommand::handle()` calls `Redis::subscribe()`, which holds one
+sustained blocking read on the TCP connection until a message arrives — fundamentally different
+from `queue:work redis`'s own driver, which polls with a *bounded* `BLPOP` internally even with
+`block_for: null` in `config/queue.php` (confirmed: `queue-worker` had zero restarts and zero read
+errors the entire time). `config/database.php`'s `redis.default` connection never set a
+`read_timeout`, so phpredis fell back to PHP's `default_socket_timeout` ini default — 60 seconds.
+Once `watcher-events` sat idle for 60s (the common case outside an active dry run), the blocking
+read timed out, phpredis surfaced it as a `RedisException`, `Redis::subscribe()`'s callback-based
+API has no built-in reconnect, so the whole `watcher:consume-events` process exited — and Docker's
+`restart: unless-stopped` just kept restarting it into the same wall every ~60s, forever, silently.
+
+**Fix:** `'read_timeout' => env('REDIS_READ_TIMEOUT', -1)` added to `config/database.php`'s
+`redis.default` block — `-1` tells phpredis to block indefinitely, which is what a `SUBSCRIBE` loop
+is actually supposed to do. Safe for `default`'s other two consumers (`RedisWorkerGateway`'s
+`RPUSH`, `queue:work`'s already-bounded polling) since neither depends on an idle-read timeout to
+function. **Verified, not just theorized:** restarted `event-consumer`, then watched
+`storage/logs/laravel.log` for over 7 minutes (well past the old ~60s trigger interval, repeatedly)
+with zero new `RedisException` entries and `RestartCount` staying at 0 — a clean break from the
+"every ~60s" pattern observed immediately beforehand.
+
+*(One red herring encountered while verifying this: a `docker events`-visible `SIGKILL`
+kill/restart of the `event-consumer` container ~40s after the fix, initially mistaken for the bug
+recurring. It wasn't — cross-checking against `storage/logs/laravel.log`'s actual `RedisException`
+signature showed no new entry at that timestamp, meaning that particular restart was an external
+kill/restart of the container, not an internal crash. Worth remembering: a container restart alone
+doesn't prove a bug reappeared — check the actual in-process error signature, not just container
+lifecycle events.)*
+
 ## Not covered by this runbook
 
 - **`check_failed` (retryable and terminal) and `captcha_required`** — same mechanism as step 5,
   just a different `type`/payload (see `WorkerEventRouter`); not re-verified live here since
   `WorkerEventRouterIntegrationTest` and `HandleCheckFailedUseCaseTest` already cover both paths
-  against a real DB and the real Illuminate event dispatcher.
-- **The actual browser automation** against `sede.administracionespublicas.gob.es` — that's
-  node-worker's `automation/` module (`NODE_WORKER_ROADMAP.md` Phase 1), which doesn't exist.
+  against a real DB and the real Illuminate event dispatcher. (The 2026-08-05 re-run did exercise a
+  real `check_failed{retryable: true}` live, incidentally — see above — but `check_completed`/
+  `captcha_required`/`check_failed{retryable: false}` still rely on those tests, not a live run.)
+- **A confirmed real trámite label reaching further into the real site** (applicant form, Cl@ve
+  panel, WAF) — see "Finding a real trámite label" above.
 - **The manual captcha-solving walkthrough** (`APPLICATION_ROADMAP.md` Phase 9's second checklist
-  item) — blocked on node-worker's `captcha/` CDP relay (`NODE_WORKER_ROADMAP.md` Phase 2) and a
-  human-facing UI for the screencast, which is explicitly not designed yet and out of scope for the
-  Laravel side (see the root `CLAUDE.md`'s non-goals). Not attempted; not achievable until both of
-  those exist.
+  item / `NODE_WORKER_ROADMAP.md` Phase 6's second checklist item) — blocked on node-worker's
+  `captcha/` CDP relay ever actually binding a session (`CaptchaSessionRegistry.register()` still
+  has no caller — no real captcha has ever been observed to trigger it) and a human-facing UI for
+  the screencast, which is explicitly not designed yet and out of scope for the Laravel side (see
+  the root `CLAUDE.md`'s non-goals). Not attempted; not achievable until both of those exist.

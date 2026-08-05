@@ -34,9 +34,13 @@ operationally via `php artisan tinker`), and hardening/observability (Phase 8 �
 terminal `CheckFailedEvent` handling via `WatchTask::retry()`, a `maxConcurrentSessions` dispatch
 guard, `watch_task_id`/`command_id` log correlation) all now exist and are wired up in
 `docker-compose.yml`. Phase 9 (integration verification) is partially done: the outbound/inbound
-flow was dry-run through a live stack with node-worker simulated by hand via `redis-cli` — see
-`docs/PHASE9_DRY_RUN.md`, including two real dev-stack bugs that dry run found and fixed. The
-manual captcha-solving walkthrough is genuinely blocked (needs node-worker's CDP relay and an
+flow was dry-run twice through a live stack — first (2026-08-02) with node-worker simulated by hand
+via `redis-cli`, then for real (2026-08-05) once node-worker actually existed, no simulation left
+anywhere in the flow — see `docs/PHASE9_DRY_RUN.md` for both runs, including three real dev-stack
+bugs found and fixed across them (the third: `event-consumer` had been silently crash-looping for
+almost a day on a Redis `read_timeout` default, unrelated to node-worker itself — see
+`config/database.php`'s `redis.default.read_timeout`). The manual captcha-solving walkthrough is
+still genuinely blocked (needs node-worker's CDP relay to ever actually bind a session, plus an
 undesigned UI), not just deferred. On the node-worker side, `messaging/` (Phase 3 of
 `docs/NODE_WORKER_ROADMAP.md`) now exists and implements both directions of the Redis contract —
 `RedisCommandConsumer`/`parseWorkerCommand` consuming `WorkerCommand` (including `commandId`) off
@@ -53,14 +57,17 @@ dev stack (BRPOP connection alive, invalid WS tokens rejected with close code 44
 (`command_id`/`watch_task_id`, matching Laravel's own `Log::withContext()` field names so both
 services' logs are grep-able by the same keys), publishes a `retryable: true` `CheckFailedEvent` on
 an uncaught exception instead of silently dropping the command, and exposes an HTTP health endpoint
-(`HEALTH_PORT`) backing a `docker-compose` `healthcheck:` on the `node-worker` service. What's still
-*not* confirmed end-to-end is a real Laravel-dispatched command actually being picked up and
-resulting in a published event back on `watcher-events` under real conditions — that's Phase 6 of
-`docs/NODE_WORKER_ROADMAP.md` (integration verification), not yet done; today's dev stack has never
-been driven with a real `WatchTask`, only Phase 9's `redis-cli`-simulated dry run predating
-node-worker's own implementation. Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`,
-`docs/NODE_WORKER_ROADMAP.md`) before assuming a later
-phase's piece exists.
+(`HEALTH_PORT`) backing a `docker-compose` `healthcheck:` on the `node-worker` service. A real
+Laravel-dispatched command being picked up and resulting in a published event back on
+`watcher-events` under real conditions — `docs/NODE_WORKER_ROADMAP.md` Phase 6's first item — is
+now confirmed live (see the dry-run note above): the actual site was reached over the network and a
+real `TramiteNotFoundError` (a guessed trámite label, never confirmed against the live page) was
+correctly turned into a retryable `CheckFailedEvent` by node-worker's Phase 5 catch-all. What's
+*not* confirmed yet is `check_completed`/`captcha_required`/a real slot listing — that needs a
+trámite label actually confirmed against the live site, which is unstarted recon, not a code gap —
+and the manual captcha-solving walkthrough (Phase 6's second item), still blocked as above. Check
+the relevant roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming
+a later phase's piece exists.
 
 ## Cross-service architecture
 

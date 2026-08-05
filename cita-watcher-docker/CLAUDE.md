@@ -12,14 +12,22 @@ node-worker, and their supporting services for local/dev/prod runs.
 (Laravel-side implementation is done — see `../docs/APPLICATION_ROADMAP.md` Phase 5). node-worker's
 `messaging/` module, its `index.ts` wiring, and its hardening (Phases 3-5 of
 `../docs/NODE_WORKER_ROADMAP.md`) are all done now, so `node-worker` is an actual running process
-that consumes `watcher-commands` and can publish onto `watcher-events` — but the
-`command: ["npm", "run", "dev"]` dev-stack has never actually been driven end-to-end by a real
-Laravel-dispatched `WatchTask` yet (that's `NODE_WORKER_ROADMAP.md` Phase 6, integration
-verification, not done). So `event-consumer` now has a real counterpart capable of publishing to
-it, but that path is still unverified live, not confirmed working. The `node-worker` service also
-now has a `healthcheck:` block (Phase 5) — same pattern as `db`/`redis`'s own `healthcheck:`, just
-polling a plain HTTP endpoint (`HEALTH_PORT`, default `4002`) via `node -e` instead of `pg_isready`/
-`redis-cli ping`, since neither is available on the Playwright base image.
+that consumes `watcher-commands` and publishes onto `watcher-events` for real — confirmed live via
+a real end-to-end dry run (2026-08-05, `../docs/PHASE9_DRY_RUN.md`). That same dry run also caught
+a real reliability bug in this stack, worth knowing about if `event-consumer` ever looks like it's
+restarting a lot: it had been silently crash-looping (`RestartCount` in the dozens) on
+`RedisException: read error on connection to redis:6379` — `Redis::subscribe()`'s one sustained
+blocking read was hitting PHP's 60s default socket timeout on an idle `watcher-events` channel,
+since `application/config/database.php`'s `redis.default` connection never set its own
+`read_timeout`. `queue-worker` never hit this because Laravel's redis queue driver polls with its
+own bounded `BLPOP` internally. Fixed on the `application/` side (`read_timeout` now `-1`), not in
+this directory — noted here because it's exactly the kind of thing that looks like a
+`docker-compose.yml`/infra problem (a container stuck restarting) but isn't one. The manual
+captcha-solving walkthrough (`NODE_WORKER_ROADMAP.md` Phase 6's second item) is still genuinely
+blocked — `node-worker`'s `/captcha-ws/` relay exists but nothing ever binds a session to it yet.
+The `node-worker` service also has a `healthcheck:` block (Phase 5) — same pattern as `db`/`redis`'s
+own `healthcheck:`, just polling a plain HTTP endpoint (`HEALTH_PORT`, default `4002`) via `node -e`
+instead of `pg_isready`/`redis-cli ping`, since neither is available on the Playwright base image.
 
 ## Service wiring
 

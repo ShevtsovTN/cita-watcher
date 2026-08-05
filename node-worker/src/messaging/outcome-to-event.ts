@@ -3,11 +3,11 @@
  * что `command-handler.ts` публикует после каждого прогона `checkAvailability`. См.
  * ../../docs/NODE_WORKER_ROADMAP.md Phase 3.
  *
- * Все четыре сегодняшних варианта `NavigationOutcome` мапятся на `CheckFailedEvent` — ни
- * `CheckCompletedEvent` (нет подтверждённого "есть места"), ни `CaptchaRequiredEvent` (нет
- * подтверждённого "это капча") ещё нельзя выдать честно: живой recon (Phase 1) ни разу не прошёл
- * дальше WAF, чтобы увидеть, что́ на самом деле показывает чистый сабмит. Это не временная
- * заглушка "пока не доделали" — это текущее состояние знания о сайте; расширять этот switch новыми
+ * Все пять сегодняшних вариантов `NavigationOutcome` мапятся на `CheckFailedEvent` — ни
+ * `CheckCompletedEvent` (нет подтверждённого реального бронирования), ни `CaptchaRequiredEvent`
+ * (у него до сих пор нет session-токена — публиковать его значило бы обещать действие, которое
+ * никто не сможет выполнить) ещё нельзя выдать честно. Это не временная заглушка "пока не
+ * доделали" — это текущее состояние знания о сайте и контракта; расширять этот switch новыми
  * вариантами `WorkerEvent` можно только вместе с новым подтверждённым вариантом `NavigationOutcome`
  * в site-navigator.ts, не раньше.
  *
@@ -21,6 +21,10 @@
  *    на странице (капча/нет мест/реальный список), не заявляем ни то, ни другое, просто пробуем
  *    ещё раз по расписанию. Отличается от "оптимистичного" варианта (трактовать как капчу) тем, что
  *    не притворяется уверенностью, которой на самом деле нет.
+ *  - `captcha_blocked_slots_offered` → `true`: ничего не забронировано, а собственный 5-минутный
+ *    таймер сайта (см. site-navigator.ts) в любом случае аннулирует именно эти слоты раньше, чем
+ *    что-либо ниже по потоку успеет отреагировать — retry по расписанию честнее, чем
+ *    `CaptchaRequiredEvent` без токена, на который никто не сможет отреагировать.
  */
 
 import type { NavigationOutcome } from "../automation";
@@ -64,6 +68,19 @@ export function mapNavigationOutcomeToCheckFailedEvent(
                 type: "check_failed",
                 watchTaskId,
                 reason: "Post-submit page could not be interpreted (captcha vs. no slots vs. a real listing is unconfirmed).",
+                retryable: true,
+                occurredAt,
+            };
+        case "captcha_blocked_slots_offered":
+            return {
+                type: "check_failed",
+                watchTaskId,
+                reason:
+                    outcome.slots.length === 0
+                        ? "Reached the offered-slots step but a required captcha blocked completion (no slot details could be parsed)."
+                        : `Found ${String(outcome.slots.length)} offered slot(s) (${outcome.slots
+                              .map((slot) => `${slot.day} ${slot.time}`)
+                              .join(", ")}), but a required captcha blocked completion.`,
                 retryable: true,
                 occurredAt,
             };

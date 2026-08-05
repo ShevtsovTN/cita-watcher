@@ -576,9 +576,30 @@ retryable=...`.
       genuinely blocked, not attempted**: `CaptchaSessionRegistry.register()` has no caller, and the
       human-facing screencast UI is explicitly undesigned (root `../CLAUDE.md`'s non-goals). What
       *has* changed since this was last written: a real captcha has now actually been observed (see
-      below) — the open question is no longer "does a captcha even exist here", it's purely "wire
-      the existing relay machinery up to a live session", which is unchanged in scope. Nothing to
-      check off here until both the caller and the UI exist.
+      below), and `site-navigator.ts` now detects reaching it (see the next checklist item) — the
+      open question is no longer "does a captcha even exist here", it's purely "wire the existing
+      relay machinery up to a live session and pause execution for a human", which is unchanged in
+      scope and genuinely bigger than what the next item covers (see its own closing paragraph).
+      Nothing to check off here until both the caller and the UI exist.
+- [x] Model the confirmed post-identity-form wizard (options menu → `acCitar` → `acOfertarCita`) in
+      `site-navigator.ts`, and make `fillApplicantForm` trámite-aware. Done 2026-08-05, same day as
+      the manual recon below, as a deliberately scoped follow-up to it (confirmed with the user
+      beforehand: model navigation only, no session-pause/human-in-the-loop work, no wire-contract
+      changes). New `CaptchaBlockedSlotsOffered`/`OfferedSlot` outcome type — local to
+      `site-navigator.ts`, not a reuse/mutation of the wire-facing `AppointmentSlot` from
+      `../types/check-result.ts`, since the real office only appears on the still-unmodeled
+      `acVerificarCita` step and this type can't honestly carry one. New `DocumentTypeNotOfferedError`/
+      `PhoneRequiredError` domain errors (a trámite not offering the requested document-type radio,
+      or a `WatchTask`'s `applicant.phone` being `null` when the site turns out to require one, are
+      real client/config mismatches — not unrecognized-page-state territory, so they're thrown, not
+      returned as a new `NavigationOutcome`). `outcome-to-event.ts` gained a matching switch case
+      mapping the new outcome to a `retryable: true` `CheckFailedEvent` with a reason string naming
+      the slot count — deliberately **not** `CaptchaRequiredEvent`, which still carries no session
+      token (see below) and would claim actionability nothing downstream has. 179 tests pass (up
+      from 171); `tsc`/`eslint`/`npm run build` all clean. Deliberately does **not** touch
+      `availability-checker.ts`'s acquire→run→release-in-finally shape — everything happens
+      synchronously within the one already-acquired `Page`, so nothing needed to suspend across an
+      external async wait for this scope.
 
 **Manual recon (2026-08-05, by hand in a real browser, not via node-worker):** with automated
 outbound access from the dev environment blocked by a local network's intrusion-prevention policy,
@@ -611,9 +632,17 @@ section. Headline findings, all confirmed live, not guessed:
   actually reserved in this session, specifically because the window expired before `acGrabarCita`.
   This is a real constraint on how fast a human has to react once a captcha relay session is live.
 
-None of this is implemented in `site-navigator.ts` yet — it's recon, captured here and in the
-file's own header comment, not a code change. Modeling the 5-step wizard (and the trámite-dependent
-applicant form) is real follow-up work, deliberately not started as part of writing this up.
+**Update, same day:** steps 1-3 of the wizard (options menu → `acCitar` → `acOfertarCita`) and the
+trámite-aware applicant form are now implemented — see the checklist item above. **Still open, and
+explicitly out of scope for that change:** `acVerificarCita`/`acGrabarCita` (steps 4-5 — never
+cleanly observed live either, see the 5-minute-timeout finding above) are still unmodeled; and —
+the actual remaining blocker on the manual-captcha-solving-walkthrough checklist item — nothing
+pauses the session for a human to solve the captcha yet. That needs `availability-checker.ts`'s
+acquire→run→release-in-finally shape to change (the session can't just be released mid-wizard while
+waiting on an external WS connection), `CaptchaSessionRegistry.register()` to gain a real caller,
+and `CaptchaRequiredEvent`'s wire shape to grow a session token/URL — in lockstep with the matching
+Laravel-side `CaptchaInterventionRequiredEvent`/`HandleCaptchaRequiredUseCase` change on the
+`../application` side. None of that has been started.
 
 ## Explicit non-goals for this roadmap
 

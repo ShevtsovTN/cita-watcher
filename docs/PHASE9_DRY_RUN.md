@@ -271,11 +271,13 @@ recon — but it does resolve real unknowns that blocked Phase 1 through Phase 6
   function would hang or throw looking for `getByLabel("Año de nacimiento")` /
   `getByLabel("País de nacionalidad")`, neither of which exists on this trámite's form.
 
-**Not done by this recon, deliberately:** no node-worker code was exercised against any of this —
-`site-navigator.ts` still only models the old single-shot shape. Modeling the 5-step wizard (and
-making the applicant-form step trámite-aware) is real follow-up implementation work, out of scope
-for a documentation pass. See `../docs/NODE_WORKER_ROADMAP.md` Phase 6 for the roadmap-level
-pointer to this same finding.
+**Not done by this recon itself, deliberately:** no node-worker code was exercised against any of
+this during the recon session — it was a human in a browser, not a script. **Update, same day:**
+steps 1-3 of the wizard (options menu → `acCitar` → `acOfertarCita`) and the trámite-aware
+applicant form have since been implemented in `site-navigator.ts` as scoped follow-up work — see
+`../docs/NODE_WORKER_ROADMAP.md` Phase 6 for the implementation write-up. Steps 4-5
+(`acVerificarCita`/`acGrabarCita`) and actually pausing a session for a human to solve the captcha
+remain unimplemented, same roadmap section.
 
 ## Not covered by this runbook
 

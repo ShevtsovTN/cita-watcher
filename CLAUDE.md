@@ -71,12 +71,19 @@ TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)` in Alicante reaches a real, simple ~6-
 alphanumeric image captcha and real offered slots, three-plus steps past what node-worker's
 `site-navigator.ts` currently models (a 5-step wizard — options menu → phone/email →
 slots+captcha, under a hard server-enforced 5-minute window → review → commit — not the
-single-shot form the code assumes). None of this was run through node-worker itself, so
-`check_completed`/`captcha_required` are still unconfirmed *from node-worker's own code* — that's
-real implementation work (modeling the wizard, making the applicant form trámite-aware), not
-recon, and it hasn't been started. The manual captcha-solving walkthrough (Phase 6's second item)
-is likewise still blocked exactly as before — knowing the captcha's shape doesn't wire up
-`CaptchaSessionRegistry` or design the screencast UI. Check the relevant roadmap
+single-shot form the code assumes). That recon session itself ran no node-worker code, but the same
+day, as scoped follow-up work, `site-navigator.ts` was extended to actually model the first three
+of those five wizard steps (options menu → `acCitar` → `acOfertarCita`) via a new
+`CaptchaBlockedSlotsOffered` outcome, and `fillApplicantForm` was made trámite-aware instead of
+assuming a fixed field set — see `docs/NODE_WORKER_ROADMAP.md` Phase 6. `check_completed`/
+`captcha_required` are still not what gets published for this outcome, deliberately: it still maps
+to a retryable `CheckFailedEvent`, since `CaptchaRequiredEvent` carries no session token yet and
+publishing it would claim actionability nothing downstream has. The manual captcha-solving
+walkthrough (Phase 6's second item) is still blocked exactly as before — modeling navigation up to
+the captcha doesn't wire up `CaptchaSessionRegistry`, doesn't let a session pause and survive across
+a human's async solve (`availability-checker.ts`'s acquire→run→release-in-finally shape is
+untouched), and doesn't design the screencast UI. Steps 4-5 of the wizard
+(`acVerificarCita`/`acGrabarCita`) remain unmodeled too. Check the relevant roadmap
 (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
 piece exists.
 

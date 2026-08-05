@@ -3,6 +3,8 @@ import type { Locator, Page } from "playwright";
 
 import {
     type CheckAvailabilityRequest,
+    DocumentTypeNotOfferedError,
+    PhoneRequiredError,
     TramiteNotFoundError,
     UnknownNationalityError,
     UnknownProvinceError,
@@ -10,6 +12,8 @@ import {
 } from "./site-navigator";
 
 const TRAMITE_SELECT_PLACEHOLDER = "Despliega para ver trámites disponibles en esta provincia";
+const SOLICITAR_CITA_BUTTON_NAME = "Solicitar Cita";
+const CAPTCHA_INPUT_PLACEHOLDER = "Introduce el texto aquí";
 
 function fakeLocator(overrides: Partial<Record<string, unknown>> = {}): Locator {
     return {
@@ -36,12 +40,28 @@ function fakeTramiteSelect(optionLabels: readonly string[], onSelect: (label: st
     });
 }
 
+interface OfferedSlotScenario {
+    readonly day: string;
+    readonly time: string;
+}
+
 interface PageScenario {
     readonly bodyText?: string;
     readonly clavePanelVisible?: boolean;
     readonly validationVisible?: boolean;
     readonly tramiteOptionLists?: readonly (readonly string[])[];
     readonly urlAfterEntrar?: string;
+    /** Defaults to `true` — matches every pre-wizard test's implicit assumption the radio exists. */
+    readonly documentTypeRadioVisible?: boolean;
+    /** Defaults to `true` — matches every pre-wizard test's implicit assumption the field exists. */
+    readonly birthYearFieldVisible?: boolean;
+    /** Defaults to `true` — matches every pre-wizard test's implicit assumption the field exists. */
+    readonly nationalityFieldVisible?: boolean;
+    /** Defaults to `false` — matches every pre-wizard test's `post_submit_unconfirmed` end state. */
+    readonly solicitarCitaVisible?: boolean;
+    /** Defaults to `false` — matches every pre-wizard test's `post_submit_unconfirmed` end state. */
+    readonly captchaVisible?: boolean;
+    readonly offeredSlots?: readonly OfferedSlotScenario[];
 }
 
 interface FakePageState {
@@ -81,7 +101,20 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
     const page = {
         goto: vi.fn(() => Promise.resolve(null)),
         url: vi.fn(() => currentUrl),
-        locator: vi.fn((selector: string) => (selector === "body" ? bodyLocator : fakeLocator())),
+        locator: vi.fn((selector: string) => {
+            if (selector === "body") return bodyLocator;
+            const citaMatch = /^#cita_(\d+)$/.exec(selector);
+            if (citaMatch !== null) {
+                const citaNumber = citaMatch[1] ?? "";
+                const slot = scenario.offeredSlots?.[Number(citaNumber) - 1];
+                return fakeLocator({
+                    innerText: vi.fn(() =>
+                        Promise.resolve(slot === undefined ? "" : `CITA ${citaNumber}\nDía: ${slot.day}\nHora: ${slot.time}`),
+                    ),
+                });
+            }
+            return fakeLocator();
+        }),
         getByText: vi.fn((text: string) => {
             if (text === "Presentación con Cl@ve") return clavePanelLocator;
             if (text === "Es incorrecto") return validationLocator;
@@ -92,6 +125,9 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
             if (role === "combobox" && name === TRAMITE_SELECT_PLACEHOLDER) return tramiteGroupLocator;
             if (role === "button") {
                 return fakeLocator({
+                    isVisible: vi.fn(() =>
+                        Promise.resolve(name === SOLICITAR_CITA_BUTTON_NAME ? (scenario.solicitarCitaVisible ?? false) : true),
+                    ),
                     click: vi.fn(() => {
                         clicks.push(name);
                         if (name === "Entrar" && scenario.urlAfterEntrar !== undefined) {
@@ -103,6 +139,7 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
             }
             if (role === "radio") {
                 return fakeLocator({
+                    isVisible: vi.fn(() => Promise.resolve(scenario.documentTypeRadioVisible ?? true)),
                     check: vi.fn(() => {
                         checkedRadios.push(name);
                         return Promise.resolve(undefined);
@@ -120,7 +157,14 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
             return fakeLocator();
         }),
         getByLabel: vi.fn((name: string) => {
+            const isVisible =
+                name === "Año de nacimiento"
+                    ? (scenario.birthYearFieldVisible ?? true)
+                    : name === "País de nacionalidad"
+                      ? (scenario.nationalityFieldVisible ?? true)
+                      : true;
             return fakeLocator({
+                isVisible: vi.fn(() => Promise.resolve(isVisible)),
                 fill: vi.fn((value: string) => {
                     filledLabels[name] = value;
                     return Promise.resolve(undefined);
@@ -129,6 +173,13 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
                     filledLabels[name] = opts.value;
                     return Promise.resolve([opts.value]);
                 }),
+            });
+        }),
+        getByPlaceholder: vi.fn((placeholder: string) => {
+            return fakeLocator({
+                isVisible: vi.fn(() =>
+                    Promise.resolve(placeholder === CAPTCHA_INPUT_PLACEHOLDER ? (scenario.captchaVisible ?? false) : false),
+                ),
             });
         }),
     } as unknown as Page;
@@ -149,6 +200,8 @@ function buildRequest(overrides: Partial<CheckAvailabilityRequest> = {}): CheckA
             fullName: "Test Testerson",
             birthYear: 1990,
             nationality: "VENEZUELA",
+            phone: "600111222",
+            email: "test@example.com",
         },
         ...overrides,
     };
@@ -255,5 +308,95 @@ describe("runAvailabilityCheck", () => {
         expect(filledTextboxes["Nombre y apellidos"]).toBe("Test Testerson");
         expect(filledLabels["Año de nacimiento"]).toBe("1990");
         expect(filledLabels["País de nacionalidad"]).toBe("248");
+    });
+
+    it("returns captcha_blocked_slots_offered when the full wizard reaches acOfertarCita", async () => {
+        const { page, clicks, filledTextboxes } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"]],
+            solicitarCitaVisible: true,
+            captchaVisible: true,
+            offeredSlots: [
+                { day: "10/09/2026", time: "09:30" },
+                { day: "11/09/2026", time: "10:15" },
+            ],
+        });
+
+        const outcome = await runAvailabilityCheck(page, buildRequest());
+
+        expect(outcome).toEqual({
+            type: "captcha_blocked_slots_offered",
+            slots: [
+                { day: "10/09/2026", time: "09:30" },
+                { day: "11/09/2026", time: "10:15" },
+            ],
+        });
+        expect(clicks).toContain("Solicitar Cita");
+        expect(clicks).toContain("Siguiente");
+        expect(filledTextboxes["Teléfono"]).toBe("600111222");
+        expect(filledTextboxes["Correo electrónico"]).toBe("test@example.com");
+        expect(filledTextboxes["Repite Correo electrónico"]).toBe("test@example.com");
+    });
+
+    it("returns post_submit_unconfirmed without clicking further when the options menu isn't recognized", async () => {
+        const { page, clicks } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"]],
+            // solicitarCitaVisible defaults to false.
+        });
+
+        const outcome = await runAvailabilityCheck(page, buildRequest());
+
+        expect(outcome).toEqual({ type: "post_submit_unconfirmed" });
+        expect(clicks).not.toContain("Siguiente");
+    });
+
+    it("returns post_submit_unconfirmed when acOfertarCita's captcha isn't recognized, after getting further than the menu fallback", async () => {
+        const { page, clicks } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"]],
+            solicitarCitaVisible: true,
+            // captchaVisible defaults to false.
+        });
+
+        const outcome = await runAvailabilityCheck(page, buildRequest());
+
+        expect(outcome).toEqual({ type: "post_submit_unconfirmed" });
+        expect(clicks).toContain("Solicitar Cita");
+        expect(clicks).toContain("Siguiente");
+    });
+
+    it("fills the applicant form successfully when birth-year/nationality fields are absent, even with an unresolvable nationality", async () => {
+        const { page, checkedRadios, filledTextboxes, filledLabels } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"]],
+            birthYearFieldVisible: false,
+            nationalityFieldVisible: false,
+        });
+        const request = buildRequest({ applicant: { ...buildRequest().applicant, nationality: "ATLANTIS" } });
+
+        const outcome = await runAvailabilityCheck(page, request);
+
+        expect(outcome).toEqual({ type: "post_submit_unconfirmed" });
+        expect(checkedRadios).toContain("N.I.E.");
+        expect(filledTextboxes["N.I.E."]).toBe("X1234567L");
+        expect(filledLabels["Año de nacimiento"]).toBeUndefined();
+        expect(filledLabels["País de nacionalidad"]).toBeUndefined();
+    });
+
+    it("throws DocumentTypeNotOfferedError when the requested document type's radio isn't offered", async () => {
+        const { page } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"]],
+            documentTypeRadioVisible: false,
+        });
+
+        await expect(runAvailabilityCheck(page, buildRequest())).rejects.toThrow(DocumentTypeNotOfferedError);
+    });
+
+    it("throws PhoneRequiredError without clicking Solicitar Cita when the options menu is reached but applicant.phone is null", async () => {
+        const { page, clicks } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"]],
+            solicitarCitaVisible: true,
+        });
+        const request = buildRequest({ applicant: { ...buildRequest().applicant, phone: null } });
+
+        await expect(runAvailabilityCheck(page, request)).rejects.toThrow(PhoneRequiredError);
+        expect(clicks).not.toContain("Solicitar Cita");
     });
 });

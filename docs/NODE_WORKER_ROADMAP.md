@@ -1,17 +1,24 @@
 # node-worker Roadmap
 
-Status: Phase 0 and Phase 1 done. `automation/` has `PlaywrightSessionManager`
+Status: Phase 0, Phase 1, and Phase 2 done. `automation/` has `PlaywrightSessionManager`
 (browser/session lifecycle + concurrency guard + CDP access), a real-site navigator
 (`site-navigator.ts` + `province-routes.ts`/`country-codes.ts`/`document-id-validator.ts`) confirmed
 against `icp.administracionelectronica.gob.es` via live reconnaissance, and session-teardown
-wrapping (`availability-checker.ts`). True captcha-widget detection is accepted as closed for this
-phase without ever being confirmed: live recon never got past a sticky WAF block on the
-applicant-form submit, so no real captcha was ever observed (see Phase 1 below). Resolving that —
-observing a real captcha and detecting it for real — is deferred to Phase 2, once `captcha/`'s CDP
-relay gives a way to work around/through the WAF (e.g. a persistent authenticated session) rather
-than guessing selectors blind.
-`../node-worker/src/index.ts` is still an empty stub; `captcha/` and `messaging/` themselves don't
-exist as directories yet (Phases 2–3).
+wrapping (`availability-checker.ts`). True captcha-widget detection is accepted as closed for
+Phase 1 without ever being confirmed: live recon never got past a sticky WAF block on the
+applicant-form submit, so no real captcha was ever observed (see Phase 1 below) — still true after
+Phase 2, since `captcha/` never got exercised against the real site either (see Phase 2's own notes
+below). `captcha/` now has the full relay pipeline built and unit-tested against fakes:
+`relay-server.ts` (`WsScreencastRelay`, WS server on `config.cdpRelay.port`, path-based token
+parsing/validation), `session-registry.ts`/`session-binder.ts` (`CaptchaSessionRegistry` mapping a
+token to its `AutomationSession`, closing unknown-token connections separately from
+malformed-token ones), `screencast-frame-relay.ts` (`CdpScreencastFrameRelay`, pipes
+`Page.startScreencast` frames to the WS client), and `input-relay.ts` (`CdpInputRelay`, relays
+mouse/key input back via `Input.dispatchMouseEvent`/`Input.dispatchKeyEvent`, plus a `resolved`
+signal to tell automation to resume). None of it has been exercised against a live `/captcha-ws/`
+connection or a real captcha widget yet — see Phase 2 below.
+`../node-worker/src/index.ts` is still an empty stub wiring these pieces together; `messaging/`
+doesn't exist as a directory yet (Phase 3).
 This document sequences the work needed to reach a complete, production-ready worker as described
 in the root `../CLAUDE.md`.
 
@@ -194,17 +201,77 @@ file, not just this one.
   from the real `<select>` options during this session's recon and are populated in full, not left
   as partial/TODO tables.
 
-## Phase 2 — Captcha relay (`captcha/`)
+## Phase 2 — Captcha relay (`captcha/`) ✅ done
 
-- [ ] WebSocket server on `config.cdpRelay.port`, path-based session token parsing and
-      validation.
-- [ ] Bind an incoming WS connection to the matching automation session's CDP target;
-      reject/close connections with an invalid or unknown token.
-- [ ] Relay the CDP screencast frames (`Page.startScreencast` or equivalent) to the
-      connected client.
-- [ ] Relay human input back (clicks/keystrokes) to the Chromium session so a person can
-      actually solve the captcha, then signal automation to resume.
-- [ ] Tests: token validation edge cases, connection lifecycle (open/close/error).
+- [x] WebSocket server on `config.cdpRelay.port`, path-based session token parsing and
+      validation. Added `src/captcha/relay-server.ts`: `extractSessionToken()` (pure, parses
+      `/captcha-ws/<token>` from `req.url`) and `WsScreencastRelay` (the `ScreencastRelay` role
+      interface anticipated in `../node-worker/CLAUDE.md`'s naming table). Connections with a
+      missing/malformed token are closed immediately with close code `4400`; well-formed ones are
+      handed to an injected `onValidConnection` callback rather than assumed valid — see the next
+      item. Also added `isSessionToken()` to `../node-worker/src/session-token.ts` (form validation
+      lives with the module that owns the token's shape).
+- [x] Bind an incoming WS connection to the matching automation session's CDP target;
+      reject/close connections with an invalid or unknown token. Added
+      `src/captcha/session-registry.ts` (`CaptchaSessionRegistry`/`InMemoryCaptchaSessionRegistry`,
+      mapping `SessionToken` → `AutomationSession`) and `src/captcha/session-binder.ts`
+      (`bindConnectionToRegisteredSession`, wraps `onValidConnection` to resolve the token and
+      close unregistered-but-well-formed tokens with a distinct close code, `4404`, from the
+      malformed-token `4400` above). Who calls `registry.register()` — i.e. when a token actually
+      gets minted and tied to a session — is still open; see "Changes not in the original
+      checklist" below.
+- [x] Relay the CDP screencast frames (`Page.startScreencast` or equivalent) to the
+      connected client. Added `src/captcha/screencast-frame-relay.ts`: `CdpScreencastFrameRelay`
+      starts the screencast on a bound `CDPSession`, forwards each frame to the WS client as
+      `{type: "screencast_frame", data}` (base64 as CDP sends it, no re-encoding), and acks every
+      frame by `sessionId` without letting an ack failure (e.g. CDP session already gone) take the
+      relay down with it.
+- [x] Relay human input back (clicks/keystrokes) to the Chromium session so a person can
+      actually solve the captcha, then signal automation to resume. Added
+      `src/captcha/input-relay.ts`: `CdpInputRelay` parses inbound WS JSON messages
+      (`RemoteMouseInput`/`RemoteKeyInput`/`RemoteResolvedSignal` — this module's own wire
+      contract, see "Changes not in the original checklist" below) into
+      `Input.dispatchMouseEvent`/`Input.dispatchKeyEvent` CDP calls, and invokes an injected
+      `onResolved()` callback on a `{"type": "resolved"}` message — "signal automation to resume"
+      itself, i.e. what actually un-blocks the paused check, is Phase 4's job once there's an
+      `index.ts` to wire it to. Parsing never throws: unrecognized/malformed input is silently
+      dropped, since it originates from a human's browser with no schema enforced upstream.
+- [x] Tests: token validation edge cases, connection lifecycle (open/close/error). 112 tests total
+      across the package (up from Phase 1's 76) — all against hand-built fakes of `ws`'s
+      `WebSocketServer`/`WebSocket` and Playwright's `CDPSession`, same idiom as Phase 1's
+      Playwright fakes.
+
+**Verification for this increment:** `npm run typecheck`, `npm run lint`, and `npm test` all pass,
+run inside the already-running `node-worker` dev container
+(`docker compose -f ../cita-watcher-docker/docker-compose.yml exec node-worker <cmd>`). Raised
+eslint's `allowDefaultProject` file-count cap (`maximumDefaultProjectFileMatchCount_...`, default
+8) to 32 — Phase 2's own test files crossed the default cap on top of Phase 0/1's.
+
+**Changes not in the original checklist / open follow-up:**
+- **Nothing in `captcha/` has been exercised against the real site or a real browser yet** — every
+  test here runs against hand-built fakes, the same limitation Phase 1's navigation work had before
+  its own live-recon pass. `WsScreencastRelay` has never accepted a real WS connection through
+  nginx's `/captcha-ws/` proxy, `CdpScreencastFrameRelay` has never seen a real
+  `Page.screencastFrame` event, and — most importantly — **no real captcha widget has ever been
+  observed**, so `PostSubmitUnconfirmed` (`../node-worker/src/automation/site-navigator.ts`, Phase
+  1) is still exactly as unconfirmed as it was before this phase. The hope stated in Phase 1's
+  status line — that a persistent CDP-relayed session might get further than recon's one-shot
+  WAF-blocked attempts — is untested, not confirmed.
+- **The screencast-frame and remote-input wire contracts (`ScreencastFrameMessage`,
+  `RemoteMouseInput`/`RemoteKeyInput`/`RemoteResolvedSignal` in `screencast-frame-relay.ts`/
+  `input-relay.ts`) are this phase's own invention, not a spec from anywhere** — there is no UI
+  client yet (root `../CLAUDE.md` calls it "undesigned"), so these shapes were kept deliberately
+  minimal (just enough to actually move a mouse/press a key/render a frame) rather than guessing at
+  what a real captcha-solving UI will eventually need (e.g. frame `metadata` for coordinate
+  mapping is deliberately not forwarded to the client). Whoever builds that UI next should treat
+  this contract as a starting point to renegotiate, not a fixed spec — same spirit as `messaging/`'s
+  own "provisional, confirm don't assume" `WorkerCommand`/`WorkerEvent` shapes in Phase 3 below.
+- **`CaptchaSessionRegistry.register()` has no caller anywhere in the codebase yet.** Nothing
+  currently decides *when* a session needs human help and mints/binds a token for it — that
+  requires real captcha detection (still blocked, see above) or some other trigger. This is the
+  same open question flagged since Phase 0 (`../node-worker/src/session-token.ts`'s docblock:
+  `CaptchaRequiredEvent` still doesn't carry a token or `/captcha-ws/` URL either) — still not
+  resolved, now with one more piece (`register()`) waiting on the same answer.
 
 ## Phase 3 — Messaging (`messaging/`)
 

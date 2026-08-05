@@ -13,9 +13,13 @@ export default tseslint.config(
             parserOptions: {
                 // tsconfig.json excludes **/*.test.ts from the build project (see its own
                 // comment) — allowDefaultProject lets those files still get linted (with a
-                // lightweight single-file program) instead of erroring as "not found".
+                // lightweight single-file program) instead of erroring as "not found". The default
+                // cap of 8 default-project files was crossed once Phase 2 added its own test file
+                // alongside Phase 0/1's — raised explicitly rather than left to fail the next time
+                // a phase adds one more test file.
                 projectService: {
                     allowDefaultProject: ["src/*.test.ts", "src/*/*.test.ts"],
+                    maximumDefaultProjectFileMatchCount_THIS_WILL_SLOW_DOWN_LINTING: 32,
                 },
                 tsconfigRootDir: import.meta.dirname,
             },

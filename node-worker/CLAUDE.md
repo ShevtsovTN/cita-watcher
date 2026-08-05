@@ -30,9 +30,20 @@ in the roadmap — resolving it for real is carried forward into Phase 2, not gu
 open:
 `src/types/commands.ts`'s `ApplicantData` doesn't have the `documentType`/`birthYear`/`nationality`
 fields the real form needs — `site-navigator.ts` uses its own `DocumentIdentity` type for now;
-wiring the two together (and the matching Laravel-side change) is Phase 3's job. `src/index.ts` is
-still an empty stub, and `captcha/`/`messaging/` don't exist as directories yet (Phases 2–3) — don't
-assume that logic exists; check before referencing it.
+wiring the two together (and the matching Laravel-side change) is Phase 3's job. Phase 2 is done:
+`src/captcha/` has the full relay pipeline — `relay-server.ts` (`WsScreencastRelay`, WS server on
+`config.cdpRelay.port` that validates the path token's form), `session-registry.ts`/
+`session-binder.ts` (`CaptchaSessionRegistry`, maps a token to its `AutomationSession`),
+`screencast-frame-relay.ts` (`CdpScreencastFrameRelay`, pipes `Page.startScreencast` frames to the
+WS client), and `input-relay.ts` (`CdpInputRelay`, relays mouse/key input back via CDP and signals
+`onResolved()` on a client's `resolved` message) — all tested against hand-built fakes of `ws` and
+`CDPSession`, same idiom as `automation/`'s Playwright fakes. None of it has run against a real WS
+connection or a real captcha yet — `PostSubmitUnconfirmed` from Phase 1 is still unconfirmed; see
+the Phase 2 write-up in the roadmap for what's still open (nothing calls
+`CaptchaSessionRegistry.register()` yet, and the screencast/input wire contracts are this phase's
+own invention pending a real UI). `src/index.ts` is still an empty stub wiring these pieces
+together, and `messaging/` doesn't exist as a directory yet (Phase 3) — don't assume that logic
+exists; check before referencing it.
 
 ## Conventions
 

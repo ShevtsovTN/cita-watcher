@@ -3,3 +3,5 @@
  * отдельных файлов напрямую (см. node-worker/CLAUDE.md, "Conventions").
  */
 export * from "./relay-server";
+export * from "./session-registry";
+export * from "./session-binder";

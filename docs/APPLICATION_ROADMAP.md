@@ -486,10 +486,11 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
 
 - [x] End-to-end dry run through `docker compose -f cita-watcher-docker/docker-compose.yml up -d`:
       create a `WatchTask` via HTTP → `queue-worker` dispatches to node-worker → `event-consumer`
-      receives the result → notification is sent. Done **with node-worker simulated by hand via
-      `redis-cli`** (it doesn't exist yet — see `../docs/NODE_WORKER_ROADMAP.md`); every other hop
-      is real. Full runbook, commands, and observed output: `../docs/PHASE9_DRY_RUN.md`. Re-run it
-      once node-worker's messaging module actually exists.
+      receives the result → notification is sent. First done (2026-08-02) **with node-worker
+      simulated by hand via `redis-cli`** (it didn't exist yet). **Re-run for real on 2026-08-05**
+      once node-worker's `messaging/`/`index.ts`/hardening (`../docs/NODE_WORKER_ROADMAP.md` Phases
+      3-5) existed — no more simulation anywhere in the flow. Full runbook, commands, and observed
+      output for both runs: `../docs/PHASE9_DRY_RUN.md`.
 - [ ] Manual captcha-solving walkthrough confirming a `CaptchaRequired` event correctly surfaces
       to whatever UI/notification path is meant to alert a human (scope TBD — not yet designed).
       **Not done, not attempted — genuinely blocked**, not merely deferred: it needs node-worker's
@@ -521,6 +522,15 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   covered end-to-end against a real DB and the real Illuminate event dispatcher by
   `WorkerEventRouterIntegrationTest`/`HandleCheckFailedUseCaseTest`, so repeating them by hand in a
   live stack wouldn't have found anything the automated tests couldn't.
+- **A third real bug, found on the 2026-08-05 re-run with the real node-worker:** `event-consumer`
+  had been silently crash-looping (~150 restarts over almost a day) on `RedisException: read error
+  on connection to redis:6379` — `Redis::subscribe()`'s single sustained blocking read was hitting
+  PHP's 60s `default_socket_timeout` default on an idle `watcher-events` channel, since
+  `config/database.php`'s `redis.default` connection never set its own `read_timeout`. `queue-worker`
+  never hit this because Laravel's redis queue driver polls with its own bounded `BLPOP` internally,
+  even with `block_for: null`. Fixed: `'read_timeout' => env('REDIS_READ_TIMEOUT', -1)` added to
+  `redis.default` — verified via 7+ minutes with zero new `RedisException` entries post-fix, a clean
+  break from the prior ~60s-interval pattern. Full root-cause writeup: `../docs/PHASE9_DRY_RUN.md`.
 
 ## Explicit non-goals for this roadmap
 

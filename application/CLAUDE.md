@@ -21,12 +21,16 @@ exists anywhere in the app, tokens are issued operationally via tinker), and har
 `FindWatchTasksDueForCheckUseCase`'s `maxConcurrentSessions` guard, `watch_task_id`/`command_id`
 log correlation) — see `../docs/APPLICATION_ROADMAP.md` Phases 1–8 for what exists and their
 tests. Phase 9 (integration verification) is partially done: the outbound/inbound flow was
-dry-run through a live `docker compose` stack with node-worker simulated by hand via `redis-cli`
-(node-worker itself doesn't exist yet) — see `../docs/PHASE9_DRY_RUN.md` for the runbook and two
-real dev-stack bugs it found and fixed (`QUEUE_CONNECTION`, a stale `event-consumer` container).
-The manual captcha-solving walkthrough is genuinely blocked, not just deferred — it needs
-node-worker's CDP relay and an undesigned UI, neither of which exist. Check the roadmap before
-assuming a later phase's piece exists.
+dry-run twice through a live `docker compose` stack — first with node-worker simulated by hand via
+`redis-cli` (before it existed), then for real once node-worker's own implementation was done — see
+`../docs/PHASE9_DRY_RUN.md` for both runbooks and three real dev-stack bugs found and fixed across
+them (`QUEUE_CONNECTION`, a stale `event-consumer` container, and — found on the real re-run —
+`event-consumer` silently crash-looping on Redis's default read timeout during `Redis::subscribe()`,
+fixed via `config/database.php`'s `redis.default.read_timeout`). The manual captcha-solving
+walkthrough is still genuinely blocked, not just deferred — node-worker's CDP relay exists now but
+never actually binds a session (nothing calls `CaptchaSessionRegistry.register()` — no real captcha
+has ever been observed), and the UI is still undesigned. Check the roadmap before assuming a later
+phase's piece exists.
 
 ## Architecture principles (apply to all new business logic)
 

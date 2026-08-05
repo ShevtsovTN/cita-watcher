@@ -164,6 +164,16 @@ return [
             'backoff_algorithm' => env('REDIS_BACKOFF_ALGORITHM', 'decorrelated_jitter'),
             'backoff_base' => env('REDIS_BACKOFF_BASE', 100),
             'backoff_cap' => env('REDIS_BACKOFF_CAP', 1000),
+            // ConsumeWatcherEventsCommand's Redis::subscribe() holds one sustained blocking read on
+            // this connection (unlike queue:work's redis driver, which polls with its own bounded
+            // BLPOP internally even with block_for=null) — without this, phpredis falls back to
+            // PHP's default_socket_timeout (60s), so an idle watcher-events channel makes the read
+            // time out as "read error on connection to redis:6379" and kills the whole
+            // watcher:consume-events process (Docker then restarts it, forever). -1 = block
+            // indefinitely, which is what a SUBSCRIBE loop is actually supposed to do. Found via a
+            // live docker-compose dry run (see docs/NODE_WORKER_ROADMAP.md Phase 6) — event-consumer
+            // had silently been crash-looping (150+ restarts) since long before this fix.
+            'read_timeout' => env('REDIS_READ_TIMEOUT', -1),
         ],
 
         'cache' => [

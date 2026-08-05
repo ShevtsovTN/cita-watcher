@@ -1,6 +1,6 @@
 # node-worker Roadmap
 
-Status: Phase 0 through Phase 5 done. `automation/` has `PlaywrightSessionManager`
+Status: Phase 0 through Phase 5 done; Phase 6 partially done. `automation/` has `PlaywrightSessionManager`
 (browser/session lifecycle + concurrency guard + CDP access), a real-site navigator
 (`site-navigator.ts` + `province-routes.ts`/`country-codes.ts`/`document-id-validator.ts`) confirmed
 against `icp.administracionelectronica.gob.es` via live reconnaissance, and session-teardown
@@ -47,7 +47,12 @@ instead of silently dropping the command (closing the gap Phase 4's write-up fla
 `src/health-server.ts` (`HttpHealthServer` on `config.health.port`/`HEALTH_PORT`, default `4002`)
 backs a `healthcheck:` block on the `node-worker` compose service; and `shm_size: 1gb` was
 confirmed sufficient for 3 concurrent real Chromium sessions doing rendering-heavy work, not just
-assumed. See Phase 5 below for the full write-up.
+assumed. See Phase 5 below for the full write-up. Phase 6's first item (a real end-to-end dry run,
+not a `redis-cli`-simulated one) is done — see `../docs/PHASE9_DRY_RUN.md`'s "Re-run with the real
+node-worker" section, which also caught and fixed a real, unrelated pre-existing bug
+(`event-consumer` crash-looping on a Redis `read_timeout` default). Phase 6's second item (the
+manual captcha-solving walkthrough) remains genuinely blocked, same reason as always:
+`CaptchaSessionRegistry.register()` has no caller and the screencast UI is undesigned.
 This document sequences the work needed to reach a complete, production-ready worker as described
 in the root `../CLAUDE.md`.
 
@@ -545,12 +550,32 @@ retryable=...`.
   still blocked on the same open captcha-detection question (Phase 0/1/2), not touched by this
   phase's logging/retry/health work.
 
-## Phase 6 — Integration verification
+## Phase 6 — Integration verification ⚠️ partially done — see notes
 
-- [ ] End-to-end dry run through `docker compose -f cita-watcher-docker/docker-compose.yml
+- [x] End-to-end dry run through `docker compose -f cita-watcher-docker/docker-compose.yml
       up -d`: Laravel enqueues a command → node-worker processes it → event lands back
-      on Redis.
-- [ ] Manual captcha-solving walkthrough through the `/captcha-ws/` relay via nginx.
+      on Redis. Done 2026-08-05 — full runbook and observed output:
+      `../docs/PHASE9_DRY_RUN.md`'s "Re-run with the real node-worker" section (this phase shares
+      that runbook with `../docs/APPLICATION_ROADMAP.md` Phase 9 rather than duplicating one).
+      Confirmed for real: `RedisCommandConsumer` picked up a Laravel-dispatched command within
+      milliseconds, node-worker's `automation/` reached the real
+      `icp.administracionelectronica.gob.es` over the network and parsed a real province page,
+      `command-handler.ts`'s Phase 5 catch-all correctly turned a `TramiteNotFoundError` (the
+      guessed trámite label wasn't real — no confirmed label has ever been recorded anywhere in
+      this codebase) into a retryable `CheckFailedEvent`, and `event-consumer` received and handled
+      it, sending the `WatchTask` back to `pending` — confirmed again minutes later when the
+      *scheduler's own* periodic tick re-dispatched the same task automatically, unprompted, with
+      the same result. Also found and fixed a real, unrelated, pre-existing bug this way:
+      `event-consumer` had been silently crash-looping for almost a day on a Redis
+      `read_timeout` default — see `PHASE9_DRY_RUN.md` for the full root-cause writeup.
+      `check_completed`/`captcha_required`/a real slot listing were **not** observed — that needs a
+      confirmed real trámite label (and possibly a province where the WAF cooperates), which is
+      recon work nobody has done yet, not a code gap.
+- [ ] Manual captcha-solving walkthrough through the `/captcha-ws/` relay via nginx. **Still
+      genuinely blocked, not attempted**: `CaptchaSessionRegistry.register()` has no caller (no real
+      captcha has ever been observed to trigger it — see Phase 0/1/2's own notes), and the
+      human-facing screencast UI is explicitly undesigned (root `../CLAUDE.md`'s non-goals). Nothing
+      to check off here until both exist.
 
 ## Explicit non-goals for this roadmap
 

@@ -19,7 +19,19 @@ import { randomBytes } from "node:crypto";
 export type SessionToken = string;
 
 const TOKEN_BYTES = 32;
+/** base64url без паддинга: ceil(bytes * 8 / 6) символов. */
+const TOKEN_LENGTH = Math.ceil((TOKEN_BYTES * 8) / 6);
+const BASE64URL_PATTERN = /^[A-Za-z0-9_-]+$/;
 
 export function generateSessionToken(): SessionToken {
     return randomBytes(TOKEN_BYTES).toString("base64url");
+}
+
+/**
+ * Проверка формы (не подлинности) токена: используется `captcha/`'s WS-сервером (Phase 2) для
+ * разбора пути `/captcha-ws/<token>` — отсеивает заведомо не наш токен ещё до того, как
+ * какой-либо реестр сессий вообще спросят, известен ли он.
+ */
+export function isSessionToken(value: string): value is SessionToken {
+    return value.length === TOKEN_LENGTH && BASE64URL_PATTERN.test(value);
 }

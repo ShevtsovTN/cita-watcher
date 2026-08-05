@@ -53,9 +53,24 @@ hand-built fakes plus one real-Redis integration test (`redis-integration.test.t
 Closed a Phase 1 gap in the same increment: `src/types/commands.ts`'s `ApplicantData` now carries
 `documentType`/`birthYear`/`nationality`, matching the real applicant form and the Laravel-side
 `ApplicantData.php`/`DocumentTypeEnum` — `site-navigator.ts`'s standalone `DocumentIdentity` type is
-gone, replaced by `ApplicantData` directly. `src/index.ts` is still an empty stub — nothing wires
-`automation/`/`captcha/`/`messaging/` together into an actual running process yet (Phase 4); don't
-assume that wiring exists, check before referencing it.
+gone, replaced by `ApplicantData` directly. Phase 4 is done: `src/index.ts` is now the composition
+root — constructs a `PlaywrightSessionManager`, two dedicated `ioredis` clients (`BRPOP` blocks its
+connection, so it can't share one with `PUBLISH`), wires `RedisCommandConsumer` through
+`createWorkerCommandHandler` to `RedisEventPublisher`, and wires `WsScreencastRelay` through
+`bindConnectionToRegisteredSession` to a new `relayCaptchaSession()` helper that actually starts
+`CdpScreencastFrameRelay`/`CdpInputRelay` for a bound connection. Also handles graceful
+SIGTERM/SIGINT shutdown (stop the command consumer, close open WS sockets — `ws`'s own
+`WebSocketServer.close()` doesn't do this for you — then the relay/browser/Redis clients, in that
+order) and top-level error handling (a `withErrorHandling` wrapper around the command handler, a
+`.catch()` on each captcha-relay connection, plus process-level `unhandledRejection`/
+`uncaughtException` listeners as a last resort) so one failed command or connection can't crash the
+process. No new test file — this phase is a composition root wiring already-tested pieces via real
+constructors, verified manually against the live dev stack instead (see the roadmap's Phase 4
+write-up for what was checked). `CaptchaSessionRegistry.register()` still has no caller anywhere,
+though — no real captcha has ever been observed, so in practice no `/captcha-ws/` connection ever
+binds to a session yet, and `CdpInputRelay`'s `resolved` signal has no automation-side pause point
+to actually resume (`automation/` doesn't pause mid-check for anything). Both are still open,
+carried since Phase 0/2 — not resolved by this wiring, just no longer blocked on it existing.
 
 ## Conventions
 

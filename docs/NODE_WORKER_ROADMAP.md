@@ -1,6 +1,6 @@
 # node-worker Roadmap
 
-Status: Phase 0 through Phase 3 done. `automation/` has `PlaywrightSessionManager`
+Status: Phase 0 through Phase 4 done. `automation/` has `PlaywrightSessionManager`
 (browser/session lifecycle + concurrency guard + CDP access), a real-site navigator
 (`site-navigator.ts` + `province-routes.ts`/`country-codes.ts`/`document-id-validator.ts`) confirmed
 against `icp.administracionelectronica.gob.es` via live reconnaissance, and session-teardown
@@ -28,8 +28,16 @@ connection or a real captcha widget yet — see Phase 2 below.
 carries `documentType`/`birthYear`/`nationality` on both sides (`../application`'s
 `ApplicantData.php`/`DocumentTypeEnum` in lockstep with `types/commands.ts`), so
 `site-navigator.ts`'s own `DocumentIdentity` type is gone.
-`../node-worker/src/index.ts` is still an empty stub — nothing wires `messaging/`/`captcha/`/
-`automation/` together into an actual running process yet (Phase 4).
+`../node-worker/src/index.ts` is no longer a stub: it's the composition root wiring
+`automation/`/`captcha/`/`messaging/` into an actual running process — a `PlaywrightSessionManager`,
+two dedicated `ioredis` clients (`RedisCommandConsumer`'s blocking `BRPOP` can't share a connection
+with `RedisEventPublisher`'s `PUBLISH`), and a `WsScreencastRelay` bound through
+`bindConnectionToRegisteredSession` to a new `relayCaptchaSession()` helper — plus graceful
+SIGTERM/SIGINT shutdown and top-level error handling so one failed command/connection can't take
+the process down. Verified manually against the real dev stack (BRPOP connection live in
+`redis-cli CLIENT LIST`, invalid-token WS connections closed with code `4400`), not just against
+fakes. `CaptchaSessionRegistry.register()` still has no caller, though — no real captcha has ever
+been observed, so `onBound` is wired and ready but never actually fires yet; see Phase 4 below.
 This document sequences the work needed to reach a complete, production-ready worker as described
 in the root `../CLAUDE.md`.
 
@@ -374,14 +382,77 @@ after the `ApplicantData` contract change below.
   `RedisCommandConsumer`/`RedisEventPublisher`/`createWorkerCommandHandler`/`WsScreencastRelay`
   together into an actual running process yet — that's Phase 4.
 
-## Phase 4 — Wiring (`../node-worker/src/index.ts`)
+## Phase 4 — Wiring (`../node-worker/src/index.ts`) ✅ done
 
-- [ ] Bootstrap sequence: load `config`, construct automation/captcha/messaging
+- [x] Bootstrap sequence: load `config`, construct automation/captcha/messaging
       instances wired through their interfaces, start the command consumer and the WS
-      relay server.
-- [ ] Graceful shutdown: on SIGTERM/SIGINT, stop accepting new commands, close browser
-      sessions, close WS connections, disconnect Redis.
-- [ ] Top-level error handling so one failed session doesn't crash the process.
+      relay server. `index.ts` is a `main()` composition root: one `PlaywrightSessionManager`
+      (`config.maxConcurrentSessions`), two separate `ioredis` clients — `BRPOP` blocks its
+      connection for up to a second at a time, so the command consumer needs one dedicated to
+      itself rather than sharing with `RedisEventPublisher`'s `PUBLISH` calls — a
+      `RedisCommandConsumer` wired to `createWorkerCommandHandler(sessionManager, eventPublisher)`,
+      and a `WsScreencastRelay` wired through `bindConnectionToRegisteredSession` to a new
+      `relayCaptchaSession()` helper (constructs `CdpScreencastFrameRelay`/`CdpInputRelay` per
+      bound connection, resolves when the socket closes). Both `commandConsumer.start()` and
+      `screencastRelay.start()` are called before `main()` returns.
+- [x] Graceful shutdown: on SIGTERM/SIGINT, stop accepting new commands, close browser
+      sessions, close WS connections, disconnect Redis. `shutdown()` runs the four steps in
+      that literal order — `commandConsumer.stop()` first (bounded by its own 1s `BRPOP` timeout,
+      see `redis-command-consumer.ts`), then closes every socket tracked in `onBound`'s
+      `openSockets` set (the `ws` library's own `WebSocketServer.close()` does *not* close
+      already-open client connections, only stops accepting new ones — has to be done explicitly),
+      then `screencastRelay.stop()`/`sessionManager.closeAll()`, then `commandRedis.quit()`/
+      `eventRedis.quit()` — safe only because the `BRPOP` client is guaranteed idle by that point.
+      Guarded by a `shuttingDown` flag so a second signal during shutdown is a no-op rather than
+      re-entering the sequence.
+- [x] Top-level error handling so one failed session doesn't crash the process. Three layers:
+      `withErrorHandling()` wraps the command handler itself (catches and logs, doesn't crash the
+      `RedisCommandConsumer` loop — note `redis-command-consumer.ts`'s own `void
+      this.onCommand(command).finally(...)` has no `.catch()`, so an unwrapped handler rejecting
+      would otherwise become an unhandled rejection); `onBound`'s `relayCaptchaSession(...).catch()`
+      does the same for captcha-relay connections; and process-level `unhandledRejection`/
+      `uncaughtException` listeners are the last-resort net for anything neither of those catches.
+      None of these publish a fallback `CheckFailedEvent` on an uncaught exception — just log —
+      deciding whether that's worth doing, and real structured logging (this just uses
+      `console.log`/`console.error`), are Phase 5's job, not resolved here.
+
+**Verification for this increment:** `npm run typecheck`, `npm run lint`, and `npm test` all pass
+(147 tests, unchanged from Phase 3 — this phase adds no new test file, see "Changes not in the
+original checklist" below). Manually verified against the real `docker-compose` dev stack (not
+just fakes): `redis-cli CLIENT LIST` shows the worker's dedicated `BRPOP`-blocked connection
+live, and connecting a raw WS client to `ws://node-worker:4001/captcha-ws/<garbage>` gets closed
+with code `4400`/`"invalid or missing session token"` as `relay-server.ts` specifies. `tsx watch`
+restarting the process on every source edit during this session's own development also exercised
+the SIGTERM path repeatedly (`command: ["npm", "run", "dev"]` in `docker-compose.yml`) — it always
+shut down and reached `[node-worker] started: ...` again on the next boot, never hung.
+
+**Changes not in the original checklist / open follow-up:**
+- **No `index.test.ts`.** Unlike Phase 0-3, this phase's own checklist above never listed a "Tests"
+  item — `main()` is a composition root wiring together already-unit-tested pieces via real
+  `ioredis`/`ws`/Playwright constructors, which is exactly the kind of thing this codebase's own
+  fake-based idiom doesn't have a clean seam for without inventing DI factories purely for a test
+  that would just re-assert "these constructor calls happened." Correctness here is proven by the
+  manual dev-stack verification above instead, same spirit as Phase 6 (integration verification)
+  will do at a larger scale.
+- **`CaptchaSessionRegistry.register()` still has no caller, so `onBound` is wired but never fires
+  in practice.** This phase makes `relayCaptchaSession()` real and ready — screencast frames would
+  actually flow, remote input would actually dispatch — but the trigger question flagged since
+  Phase 0 (who decides a session needs human help, and calls `registry.register()`) is still open;
+  no real captcha has ever been observed (`PostSubmitUnconfirmed`, Phase 1) to make that decision
+  from. Not attempted here — inventing a trigger without a confirmed captcha-detection signal would
+  be guessing at exactly the kind of thing this roadmap has repeatedly refused to guess at.
+- **`CdpInputRelay`'s `resolved` signal has nothing to resume.** Its own Phase 2 docblock said
+  "signal automation to resume... is Phase 4's job once there's an `index.ts` to wire it to" — but
+  `automation/` has no pause-and-wait-for-human point in its flow at all (`checkAvailability` runs
+  straight through to a `NavigationOutcome` and returns). `relayCaptchaSession()`'s `onResolved`
+  callback just logs this rather than pretending to resume something that doesn't exist. Building a
+  real pause point is blocked on the same open captcha-detection question as the item above, not a
+  Phase 4 oversight.
+- **`command.procedure`/`command.applicant` fields still don't get logged with correlation
+  ids on failure** — `withErrorHandling` logs `commandId`/`watchTaskId` only, deliberately omitting
+  `applicant` (would leak PII to worker stdout, the same concern `../application`'s
+  `ApplicantDataDoesNotLeakToLogsTest` guards on the Laravel side). Full structured, correlated
+  logging across both services is still Phase 5.
 
 ## Phase 5 — Hardening & observability
 

@@ -12,8 +12,8 @@ human can solve captchas manually when the automated flow hits one.
 **Project stage:** Phase 0 (`../docs/NODE_WORKER_ROADMAP.md`) is done — `src/types/` (shared domain
 types matching the Laravel-side wire contract, split into `commands.ts`/`check-result.ts`/`events.ts`
 behind an `index.ts` barrel) and `src/session-token.ts` (`SessionToken`/`generateSessionToken()`)
-exist, plus a committed ESLint flat config and vitest scaffolding with real tests. Phase 1 is mostly
-done: `src/automation/` has `SessionManager`/`PlaywrightSessionManager` (Playwright browser/session
+exist, plus a committed ESLint flat config and vitest scaffolding with real tests. Phase 1 is done:
+`src/automation/` has `SessionManager`/`PlaywrightSessionManager` (Playwright browser/session
 lifecycle, `maxConcurrentSessions` guard, per-session CDP access for the future captcha relay),
 `site-navigator.ts` (`runAvailabilityCheck` — real navigation against
 `icp.administracionelectronica.gob.es`, confirmed via live reconnaissance: province → trámite →
@@ -22,10 +22,12 @@ validation detection) with its data tables `province-routes.ts`/`country-codes.t
 `document-id-validator.ts` (client-side NIE/DNI checksum), and `availability-checker.ts`
 (`checkAvailability` — the try/finally session acquire/release wrapper around a check), all behind
 the `index.ts` barrel, tested against hand-built fakes of Playwright's
-`Browser`/`BrowserContext`/`Page`/`Locator`. **Not** implemented: true captcha-widget detection —
-live recon never got past a sticky WAF block triggered by the applicant-form submit, so what a
-*clean* submit actually shows (captcha vs. "no slots" vs. a real slot listing) is unconfirmed; see
-`PostSubmitUnconfirmed` in `site-navigator.ts` and the Phase 1 write-up in the roadmap. Also open:
+`Browser`/`BrowserContext`/`Page`/`Locator`. Phase 1 closed without ever observing a real
+captcha-widget: live recon never got past a sticky WAF block triggered by the applicant-form
+submit, so what a *clean* submit actually shows (captcha vs. "no slots" vs. a real slot listing)
+is still unconfirmed; see `PostSubmitUnconfirmed` in `site-navigator.ts` and the Phase 1 write-up
+in the roadmap — resolving it for real is carried forward into Phase 2, not guessed at here. Also
+open:
 `src/types/commands.ts`'s `ApplicantData` doesn't have the `documentType`/`birthYear`/`nationality`
 fields the real form needs — `site-navigator.ts` uses its own `DocumentIdentity` type for now;
 wiring the two together (and the matching Laravel-side change) is Phase 3's job. `src/index.ts` is

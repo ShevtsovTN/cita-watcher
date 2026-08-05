@@ -1,11 +1,15 @@
 # node-worker Roadmap
 
-Status: Phase 0 done. Phase 1 mostly done: `automation/` has `PlaywrightSessionManager`
+Status: Phase 0 and Phase 1 done. `automation/` has `PlaywrightSessionManager`
 (browser/session lifecycle + concurrency guard + CDP access), a real-site navigator
 (`site-navigator.ts` + `province-routes.ts`/`country-codes.ts`/`document-id-validator.ts`) confirmed
 against `icp.administracionelectronica.gob.es` via live reconnaissance, and session-teardown
-wrapping (`availability-checker.ts`). True captcha-widget detection remains unconfirmed/unimplemented
-(see Phase 1 below — the WAF blocked recon before any captcha was ever observed).
+wrapping (`availability-checker.ts`). True captcha-widget detection is accepted as closed for this
+phase without ever being confirmed: live recon never got past a sticky WAF block on the
+applicant-form submit, so no real captcha was ever observed (see Phase 1 below). Resolving that —
+observing a real captcha and detecting it for real — is deferred to Phase 2, once `captcha/`'s CDP
+relay gives a way to work around/through the WAF (e.g. a persistent authenticated session) rather
+than guessing selectors blind.
 `../node-worker/src/index.ts` is still an empty stub; `captcha/` and `messaging/` themselves don't
 exist as directories yet (Phases 2–3).
 This document sequences the work needed to reach a complete, production-ready worker as described
@@ -91,7 +95,7 @@ folders for concrete classes.
   Playwright's `pwuser`-relative paths (browser binaries, `$HOME`), which needs real verification,
   not a speculative change made in passing.
 
-## Phase 1 — Automation core (`automation/`)
+## Phase 1 — Automation core (`automation/`) ✅ done
 
 - [x] Browser/session manager: launch Playwright Chromium, enforce
       `config.maxConcurrentSessions`, expose a session's CDP endpoint for Phase 3. Added
@@ -127,13 +131,15 @@ folders for concrete classes.
       N.I.E./D.N.I./PASAPORTE, name, birth year, nationality) → submit. What a *clean*
       (non-WAF-blocked) submit actually returns — captcha, "no slots", or a real slot listing — is
       still unconfirmed; see `PostSubmitUnconfirmed` and the captcha-detection item below.
-- [ ] Captcha detection (not solving): still genuinely blocked — live reconnaissance never got past
-      a WAF (see "Changes not in the original checklist" below) that rejected the session right at
-      the applicant-form submit, before any captcha widget was ever shown. What *was* confirmed and
-      is now detected as part of the navigation work above: `RequiresClave` (a Cl@ve-gated trámite —
-      not a captcha at all), `WafRejected` (the WAF block itself), and `ValidationRejected` (the
-      site's own "Es incorrecto" inline validation). `PostSubmitUnconfirmed` is the explicit marker
-      for "a real captcha still needs to be observed" — do not replace it with guessed selectors.
+- [x] Captcha detection (not solving): closed for this phase without ever observing a real captcha
+      — live reconnaissance never got past a WAF (see "Changes not in the original checklist" below)
+      that rejected the session right at the applicant-form submit, before any captcha widget was
+      ever shown. What *was* confirmed and is now detected as part of the navigation work above:
+      `RequiresClave` (a Cl@ve-gated trámite — not a captcha at all), `WafRejected` (the WAF block
+      itself), and `ValidationRejected` (the site's own "Es incorrecto" inline validation).
+      `PostSubmitUnconfirmed` is the explicit marker for "a real captcha still needs to be
+      observed" — carried forward into Phase 2 rather than replaced with guessed selectors here;
+      Phase 2's WS relay is what gives a real shot at getting past the WAF to actually see one.
 - [x] Session cleanup/teardown on success, failure, and crash (no leaked Chromium processes). Added
       `src/automation/availability-checker.ts`'s `checkAvailability`: acquires a session, runs the
       check (defaults to `runAvailabilityCheck`, injectable as `runCheck` for tests — same seam as

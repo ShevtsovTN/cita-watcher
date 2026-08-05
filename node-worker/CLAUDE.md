@@ -98,11 +98,24 @@ a 5-step wizard, not the single-shot form `site-navigator.ts` used to assume —
 `site-navigator.ts` now models the first three of those five steps (options menu → `acCitar` →
 `acOfertarCita`) via a new `CaptchaBlockedSlotsOffered` outcome, and `fillApplicantForm` is now
 trámite-aware instead of assuming a fixed field set — see `../docs/NODE_WORKER_ROADMAP.md` Phase 6
-for the full write-up. Still open: `acVerificarCita`/`acGrabarCita` (steps 4-5) are unmodeled, and
-the manual captcha-solving walkthrough remains genuinely blocked — `CaptchaSessionRegistry.
-register()` still has no caller, `availability-checker.ts`'s acquire→run→release-in-finally shape
-still can't pause a session for a human mid-wizard, `CaptchaRequiredEvent` still carries no session
-token, and the screencast UI is still undesigned. None of that was in scope for this increment.
+for the full write-up. `acVerificarCita`/`acGrabarCita` (steps 4-5) are still unmodeled.
+
+Phase 7 is partially done (node-worker side only — see `../docs/NODE_WORKER_ROADMAP.md` Phase 7):
+`availability-checker.ts`'s `checkAvailability` no longer auto-releases the session for a
+`captcha_blocked_slots_offered` outcome, `captcha/session-registry.ts`'s `CaptchaSessionRegistry.
+register()` has a real production caller for the first time (bridging `index.ts`'s WS relay to
+`messaging/command-handler.ts`, which now actually pauses, publishes `CaptchaRequiredEvent{
+sessionToken}` promptly, and waits for either `notifyResolved()` or a new configurable timeout
+before releasing), and a real, previously-inert `cita-watcher-docker/nginx/default.conf` bug
+(a `proxy_pass` trailing slash stripping the `/captcha-ws/` prefix) was found and fixed along the
+way. `createWorkerCommandHandler` moved from 5 positional params to a `WorkerCommandHandlerDeps`
+options object as part of this. 191 tests pass (up from 179). **Deliberately deferred, confirmed
+with the user beforehand:** the Laravel-side half — reading `sessionToken`, building the
+`{APP_URL}/captcha-ws/{sessionToken}` link, and a new notification listener — is a separate,
+unstarted branch/PR; shipping the node-worker side alone is safe since nothing on the Laravel side
+reads the new field yet. The manual captcha-solving walkthrough itself is **still** genuinely
+blocked even after this phase: a session is now reachable via `/captcha-ws/<token>`, but nobody is
+ever told that URL yet, and the screencast UI is still undesigned.
 
 ## Conventions
 

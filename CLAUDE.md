@@ -77,15 +77,24 @@ of those five wizard steps (options menu → `acCitar` → `acOfertarCita`) via 
 `CaptchaBlockedSlotsOffered` outcome, and `fillApplicantForm` was made trámite-aware instead of
 assuming a fixed field set — see `docs/NODE_WORKER_ROADMAP.md` Phase 6. `check_completed`/
 `captcha_required` are still not what gets published for this outcome, deliberately: it still maps
-to a retryable `CheckFailedEvent`, since `CaptchaRequiredEvent` carries no session token yet and
-publishing it would claim actionability nothing downstream has. The manual captcha-solving
-walkthrough (Phase 6's second item) is still blocked exactly as before — modeling navigation up to
-the captcha doesn't wire up `CaptchaSessionRegistry`, doesn't let a session pause and survive across
-a human's async solve (`availability-checker.ts`'s acquire→run→release-in-finally shape is
-untouched), and doesn't design the screencast UI. Steps 4-5 of the wizard
-(`acVerificarCita`/`acGrabarCita`) remain unmodeled too. Check the relevant roadmap
-(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
-piece exists.
+to a retryable `CheckFailedEvent` — that was true through Phase 6, but Phase 7 (node-worker side,
+same week) changes it: `availability-checker.ts` no longer auto-releases the session for that
+outcome, `CaptchaSessionRegistry.register()` now has a real caller for the first time, and
+`messaging/command-handler.ts` actually pauses — generating a session token, publishing
+`CaptchaRequiredEvent{sessionToken}` promptly, and waiting for either a human's `"resolved"` signal
+(relayed via `index.ts`) or a configurable timeout before releasing. A real, previously-inert
+`cita-watcher-docker/nginx/default.conf` bug (a `proxy_pass` trailing slash silently breaking the
+`/captcha-ws/<token>` path) was found and fixed along the way. See `docs/NODE_WORKER_ROADMAP.md`
+Phase 7 for the full write-up. **Deliberately deferred, confirmed with the user beforehand:** the
+Laravel-side half of this same contract change — reading `sessionToken`, building the actual
+`/captcha-ws/<token>` link, and a notification listener to tell a human about it — is unstarted,
+tracked for a separate branch/PR; the node-worker-side change ships safely alone since nothing on
+the Laravel side reads the new field yet. The manual captcha-solving walkthrough (Phase 6's second
+item) is **still** genuinely blocked even after Phase 7 — a session is now reachable via
+`/captcha-ws/<token>`, but nobody is ever told that URL yet (the deferred Laravel piece above), and
+the screencast UI is still undesigned. Steps 4-5 of the wizard (`acVerificarCita`/`acGrabarCita`)
+remain unmodeled too. Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`,
+`docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's piece exists.
 
 ## Cross-service architecture
 

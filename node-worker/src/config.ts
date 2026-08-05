@@ -37,6 +37,18 @@ export interface WorkerConfig {
         readonly port: number;
     };
     readonly maxConcurrentSessions: number;
+    readonly captcha: {
+        /**
+         * How long `messaging/command-handler.ts` waits for a human to resolve a paused captcha
+         * session (via `captcha/session-registry.ts`'s `notifyResolved()`) before giving up and
+         * releasing the browser session anyway. Deliberately under the confirmed real ~5-minute
+         * site window (see `automation/site-navigator.ts`'s header comment) and under
+         * `cita-watcher-docker/nginx/default.conf`'s `proxy_read_timeout 300s` on `/captcha-ws/`,
+         * so this timeout fires before either of those would, leaving a safety margin — the exact
+         * server-side cutoff was never pinned to the second.
+         */
+        readonly resolutionTimeoutMs: number;
+    };
 }
 
 export class EnvValidationError extends Error {
@@ -118,6 +130,9 @@ export function loadConfig(env: EnvSource = process.env): Readonly<WorkerConfig>
             port: parsePort(env, "HEALTH_PORT", 4002),
         },
         maxConcurrentSessions: parsePositiveInt(env, "MAX_CONCURRENT_SESSIONS", 3),
+        captcha: {
+            resolutionTimeoutMs: parsePositiveInt(env, "CAPTCHA_RESOLUTION_TIMEOUT_MS", 240_000),
+        },
     };
 
     return Object.freeze(config);

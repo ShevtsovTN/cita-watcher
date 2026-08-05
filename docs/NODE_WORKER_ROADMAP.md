@@ -644,6 +644,52 @@ and `CaptchaRequiredEvent`'s wire shape to grow a session token/URL — in locks
 Laravel-side `CaptchaInterventionRequiredEvent`/`HandleCaptchaRequiredUseCase` change on the
 `../application` side. None of that has been started.
 
+## Phase 7 — Pause a session for a human to solve a real captcha (node-worker side) ⚠️ partially done — see notes
+
+- [x] `availability-checker.ts`'s `checkAvailability` no longer auto-releases the session for a
+      `captcha_blocked_slots_offered` outcome — it returns `{ outcome, pendingCaptchaSession }`,
+      handing the still-live `AutomationSession` to the caller instead of tearing it down. Every
+      other outcome (including a thrown error) still releases exactly as before.
+- [x] `captcha/session-registry.ts`'s `CaptchaSessionRegistry.register()` now has a real production
+      caller for the first time since Phase 0/2. `register()` gained an `onResolved` callback
+      parameter and the registry gained `notifyResolved()`, becoming the actual bridge between the
+      WS relay side (`index.ts`'s `relayCaptchaSession`, which now calls `notifyResolved(token)`
+      when `CdpInputRelay` sees a `"resolved"` message — previously a log-only stub) and the side
+      genuinely waiting on a human (`messaging/command-handler.ts`).
+- [x] `messaging/command-handler.ts`: on `captcha_blocked_slots_offered`, generates a `SessionToken`,
+      publishes `CaptchaRequiredEvent{sessionToken}` immediately (before waiting, so a human learns
+      about it promptly), registers the paused session, then awaits either `notifyResolved()` or a
+      new configurable timeout (`CAPTCHA_RESOLUTION_TIMEOUT_MS`, default 4 minutes — deliberately
+      under the confirmed real ~5-minute site window and under nginx's `proxy_read_timeout 300s` on
+      `/captcha-ws/`), release+unregister always in a `finally`. Deliberately publishes nothing
+      further after resolution/timeout — node-worker has no visibility into what a human actually
+      did over the CDP relay, and this codebase consistently avoids reporting a guess as an
+      observation. `createWorkerCommandHandler` was refactored from 5 positional params to a single
+      `WorkerCommandHandlerDeps` options object as part of this — the growing collaborator list
+      (now `captchaRegistry` plus a token generator/timer for testability) had outgrown positional
+      args, and every call site needed updating for the new captcha branch anyway.
+- [x] Found and fixed a real, previously-inert infra bug this surfaced: `cita-watcher-docker/nginx/
+      default.conf`'s `location /captcha-ws/ { proxy_pass http://node-worker:4001/; ... }` had a
+      trailing slash on `proxy_pass`, which makes nginx strip the matched `/captcha-ws/` prefix
+      before forwarding — node-worker would have received `/<token>` instead of
+      `/captcha-ws/<token>`, which `extractSessionToken`'s `RELAY_PATH_PREFIX` check would reject.
+      Fixed by dropping the trailing slash so nginx forwards the original URI unchanged.
+- [x] 191 tests pass (up from 179); `tsc`/`eslint`/`npm run build` all clean.
+- [ ] **Deliberately deferred, confirmed with the user beforehand**: the Laravel-side half of this
+      contract change. `CaptchaRequiredEvent`'s new `sessionToken` field is safe to ship alone —
+      `WorkerEventRouter::routeCaptchaRequired()` only reads `watchTaskId`/`occurredAt` off the
+      payload today and ignores unknown keys, and nothing currently listens for
+      `CaptchaInterventionRequiredEvent` at all — but reading the field, building the actual
+      `{APP_URL}/captcha-ws/{sessionToken}` link (node-worker deliberately doesn't know Laravel's
+      public URL, so it only publishes the bare token), and a new listener to actually notify a
+      human (Telegram/email, reusing the existing `SendNotificationUseCase` pattern) are unstarted,
+      tracked for a separate branch/PR.
+- [ ] The manual captcha-solving walkthrough itself (Phase 6's second item) is **still** genuinely
+      blocked even after this phase — modeling the pause gets a session as far as being reachable
+      via `/captcha-ws/<token>`, but nobody is ever told that URL yet (the Laravel-side item above),
+      and the human-facing screencast UI is still undesigned (root `../CLAUDE.md` non-goal). Nothing
+      to check off here until both exist.
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

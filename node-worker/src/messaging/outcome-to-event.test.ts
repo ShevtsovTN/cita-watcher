@@ -50,6 +50,32 @@ describe("mapNavigationOutcomeToCheckFailedEvent", () => {
         expect(event.retryable).toBe(true);
     });
 
+    it("maps captcha_blocked_slots_offered with slots to a retryable failure describing the count and days/times", () => {
+        const outcome: NavigationOutcome = {
+            type: "captcha_blocked_slots_offered",
+            slots: [
+                { day: "10/09/2026", time: "09:30" },
+                { day: "11/09/2026", time: "10:15" },
+            ],
+        };
+
+        const event = mapNavigationOutcomeToCheckFailedEvent(outcome, WATCH_TASK_ID, OCCURRED_AT);
+
+        expect(event.retryable).toBe(true);
+        expect(event.reason).toContain("2");
+        expect(event.reason).toContain("10/09/2026 09:30");
+        expect(event.reason.toLowerCase()).toContain("captcha");
+    });
+
+    it("maps captcha_blocked_slots_offered with no parsed slots to a retryable failure with an honest reason", () => {
+        const outcome: NavigationOutcome = { type: "captcha_blocked_slots_offered", slots: [] };
+
+        const event = mapNavigationOutcomeToCheckFailedEvent(outcome, WATCH_TASK_ID, OCCURRED_AT);
+
+        expect(event.retryable).toBe(true);
+        expect(event.reason.toLowerCase()).toContain("captcha");
+    });
+
     it("always sets type to check_failed and passes through watchTaskId/occurredAt", () => {
         const outcome: NavigationOutcome = { type: "post_submit_unconfirmed" };
 

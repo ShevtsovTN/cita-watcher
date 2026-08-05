@@ -87,6 +87,22 @@ DI-factory idiom as `captcha/relay-server.ts`) serves `config.health.port`/`HEAL
 "ready"` — backs a new `healthcheck:` block on the `node-worker` compose service. `shm_size: 1gb`
 was verified against 3 concurrent real Chromium sessions doing actual rendering work (not just
 theorized) — no crash, confirmed sufficient for the current `maxConcurrentSessions` default.
+Phase 6 (integration verification) is partially done: a real Laravel-dispatched command being
+picked up and resulting in a published event, and a real (unrelated) Redis bug found and fixed
+along the way, are both confirmed live — see `../docs/PHASE9_DRY_RUN.md`. Separately, manual
+browser recon (2026-08-05, by a human, not node-worker — automated recon was blocked by the dev
+network's own intrusion-prevention policy) confirmed a real trámite label, a real ~6-character
+alphanumeric captcha (the site's `eu-captcha` widget), and that the real post-identity-form flow is
+a 5-step wizard, not the single-shot form `site-navigator.ts` used to assume — full findings in
+`../docs/PHASE9_DRY_RUN.md`'s "Manual browser recon" section. As scoped follow-up the same day,
+`site-navigator.ts` now models the first three of those five steps (options menu → `acCitar` →
+`acOfertarCita`) via a new `CaptchaBlockedSlotsOffered` outcome, and `fillApplicantForm` is now
+trámite-aware instead of assuming a fixed field set — see `../docs/NODE_WORKER_ROADMAP.md` Phase 6
+for the full write-up. Still open: `acVerificarCita`/`acGrabarCita` (steps 4-5) are unmodeled, and
+the manual captcha-solving walkthrough remains genuinely blocked — `CaptchaSessionRegistry.
+register()` still has no caller, `availability-checker.ts`'s acquire→run→release-in-finally shape
+still can't pause a session for a human mid-wizard, `CaptchaRequiredEvent` still carries no session
+token, and the screencast UI is still undesigned. None of that was in scope for this increment.
 
 ## Conventions
 

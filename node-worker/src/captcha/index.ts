@@ -5,3 +5,5 @@
 export * from "./relay-server";
 export * from "./session-registry";
 export * from "./session-binder";
+export * from "./screencast-frame-relay";
+export * from "./input-relay";

@@ -125,11 +125,26 @@ services:
       # application/.env's APP_NAME/REDIS_PREFIX; update both together if either changes.
       REDIS_KEY_PREFIX: laravel-database-
       CDP_RELAY_PORT: ${CDP_RELAY_PORT:-4001}
+      HEALTH_PORT: ${HEALTH_PORT:-4002}
       MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-3}
     volumes:
       - ../node-worker:/usr/src/app # bind-mount: живая разработка без ребилда образа
       - node-worker-modules:/usr/src/app/node_modules # именованный volume, чтобы bind-mount не затирал node_modules из образа
     shm_size: "1gb" # Chromium требует увеличенный /dev/shm
+    healthcheck:
+      # Plain `node -e` hitting src/index.ts's HttpHealthServer — no curl/wget dependency needed
+      # on the Playwright base image. Reports unhealthy if either Redis client isn't "ready".
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "require('http').get('http://localhost:${HEALTH_PORT:-4002}', (res) => process.exit(res.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s # first boot launches Chromium + connects two Redis clients
     depends_on:
       redis:
         condition: service_healthy

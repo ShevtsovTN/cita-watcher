@@ -9,6 +9,7 @@ describe("loadConfig", () => {
         expect(config).toEqual({
             redis: { host: "127.0.0.1", port: 6379, keyPrefix: "laravel-database-" },
             cdpRelay: { port: 4001 },
+            health: { port: 4002 },
             maxConcurrentSessions: 3,
         });
     });
@@ -19,12 +20,14 @@ describe("loadConfig", () => {
             REDIS_PORT: "6400",
             REDIS_KEY_PREFIX: "custom-prefix-",
             CDP_RELAY_PORT: "5000",
+            HEALTH_PORT: "5001",
             MAX_CONCURRENT_SESSIONS: "5",
         });
 
         expect(config).toEqual({
             redis: { host: "redis", port: 6400, keyPrefix: "custom-prefix-" },
             cdpRelay: { port: 5000 },
+            health: { port: 5001 },
             maxConcurrentSessions: 5,
         });
     });
@@ -50,6 +53,9 @@ describe("loadConfig", () => {
         ["REDIS_PORT", "0"],
         ["REDIS_PORT", "65536"],
         ["REDIS_PORT", "1.5"],
+        ["HEALTH_PORT", "not-a-number"],
+        ["HEALTH_PORT", "0"],
+        ["HEALTH_PORT", "65536"],
     ])("throws EnvValidationError when %s is invalid (%s)", (name, value) => {
         expect(() => loadConfig({ [name]: value })).toThrow(EnvValidationError);
     });

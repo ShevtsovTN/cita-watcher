@@ -1,6 +1,6 @@
 # node-worker Roadmap
 
-Status: Phase 0 through Phase 4 done. `automation/` has `PlaywrightSessionManager`
+Status: Phase 0 through Phase 5 done. `automation/` has `PlaywrightSessionManager`
 (browser/session lifecycle + concurrency guard + CDP access), a real-site navigator
 (`site-navigator.ts` + `province-routes.ts`/`country-codes.ts`/`document-id-validator.ts`) confirmed
 against `icp.administracionelectronica.gob.es` via live reconnaissance, and session-teardown
@@ -38,6 +38,16 @@ the process down. Verified manually against the real dev stack (BRPOP connection
 `redis-cli CLIENT LIST`, invalid-token WS connections closed with code `4400`), not just against
 fakes. `CaptchaSessionRegistry.register()` still has no caller, though — no real captcha has ever
 been observed, so `onBound` is wired and ready but never actually fires yet; see Phase 4 below.
+Phase 5 closed out the remaining hardening items: `src/logger.ts` (a `Logger` with
+`command_id`/`watch_task_id`-correlated `withContext()`, matching Laravel's own `Log::withContext`
+field names so both services' logs are grep-able by the same keys) replaced the ad-hoc
+`console.log`/`console.error` calls Phase 4 added; `command-handler.ts` now catches an uncaught
+exception from `checkAvailability` itself and publishes a `retryable: true` `CheckFailedEvent`
+instead of silently dropping the command (closing the gap Phase 4's write-up flagged); a new
+`src/health-server.ts` (`HttpHealthServer` on `config.health.port`/`HEALTH_PORT`, default `4002`)
+backs a `healthcheck:` block on the `node-worker` compose service; and `shm_size: 1gb` was
+confirmed sufficient for 3 concurrent real Chromium sessions doing rendering-heavy work, not just
+assumed. See Phase 5 below for the full write-up.
 This document sequences the work needed to reach a complete, production-ready worker as described
 in the root `../CLAUDE.md`.
 
@@ -454,14 +464,86 @@ shut down and reached `[node-worker] started: ...` again on the next boot, never
   `ApplicantDataDoesNotLeakToLogsTest` guards on the Laravel side). Full structured, correlated
   logging across both services is still Phase 5.
 
-## Phase 5 — Hardening & observability
+## Phase 5 — Hardening & observability ✅ done
 
-- [ ] Structured logging (correlate logs by session/command id).
-- [ ] Retry/backoff policy for transient site failures vs. hard failures
-      (`CheckFailedEvent` semantics).
-- [ ] Health signal for the container (used by compose/orchestration).
-- [ ] Confirm behavior under `shm_size: 1gb` constraint (docker-compose already sets
-      this for headless Chromium).
+- [x] Structured logging (correlate logs by session/command id). Added `src/logger.ts`:
+      `Logger` (`info`/`error`/`withContext`) + a `ConsoleLogger` singleton. `withContext()` binds
+      correlation fields once and every subsequent call carries them — the same idea as Laravel's
+      own `Log::withContext([...])` (Phase 8, `RedisWorkerGateway.php`/
+      `DispatchAvailabilityCheckJob.php`), and deliberately uses the *same field names*
+      (`command_id`/`watch_task_id`, snake_case) even though the wire JSON stays camelCase, so both
+      services' logs can be grepped by the same key for one `WatchTask`'s/command's journey — the
+      exact thing `RedisWorkerGateway.php`'s own docblock said this was for. Plain `key=value`
+      suffix, not JSON: Laravel's own logging isn't configured for structured JSON either (stock
+      Monolog line formatter), so there's nothing on the other side to match by parsing JSON.
+      Wired into `command-handler.ts` (logs `info` on every published event, `error` on an
+      unexpected exception, both `withContext`-bound to `command_id`/`watch_task_id`),
+      `redis-command-consumer.ts` (logs `error` when dropping a malformed payload — previously
+      silent), and `index.ts` (replaces the ad-hoc `console.log`/`console.error` calls added in
+      Phase 4, adds a `session_id`-bound logger for captcha relay connections).
+- [x] Retry/backoff policy for transient site failures vs. hard failures (`CheckFailedEvent`
+      semantics). The classification itself (`outcome-to-event.ts`) was already complete since
+      Phase 3 — what this phase closes is the gap Phase 4's own write-up flagged: an uncaught
+      exception from `checkAvailability` (a real Playwright crash, a network timeout — anything not
+      already modeled as a `NavigationOutcome`) used to propagate out to `index.ts`'s
+      `withErrorHandling`, which only logged it, leaving the command's `WatchTask` stuck with no
+      event published at all. `command-handler.ts` now catches it and publishes a
+      `retryable: true` `CheckFailedEvent` (`reason: "Unexpected error: <message>"`) — same
+      conservative "unknown means retryable" choice `outcome-to-event.ts` already makes for
+      `post_submit_unconfirmed`. No new backoff *timer* was added on this side: the actual retry
+      cadence is Laravel's `watcher:dispatch-due-checks` schedule, already in place since
+      `../application`'s Phase 4/8 — node-worker's whole job in this contract is correctly
+      classifying `retryable`, not scheduling anything itself. `index.ts`'s `withErrorHandling`
+      stays as a last-resort net for what even this can't catch (e.g. `eventPublisher.publish()`
+      itself throwing because Redis is down).
+- [x] Health signal for the container (used by compose/orchestration). Added
+      `src/health-server.ts`: `HttpHealthServer`, a plain HTTP endpoint on the new
+      `config.health.port` (`HEALTH_PORT`, default `4002` — separate from `cdpRelay.port` since
+      that one speaks WS-only and closes anything that isn't a valid `/captcha-ws/<token>` path,
+      which a healthcheck probe isn't) answering `200`/`{"status":"ok"}` or
+      `503`/`{"status":"unhealthy"}` from an injected `isHealthy()` callback — same DI-factory
+      idiom as `captcha/relay-server.ts`'s `WebSocketServerFactory`. `index.ts` wires it to
+      `() => commandRedis.status === "ready" && eventRedis.status === "ready"` — cheap and
+      synchronous on purpose; a deeper check of browser/session liveness isn't attempted since
+      `SessionManager`'s interface doesn't expose that today, and inventing new API surface on an
+      already-tested Phase 1 module just for this wasn't this phase's job. `docker-compose.yml`'s
+      `node-worker` service gets a `healthcheck:` block (`node -e` hitting the endpoint directly —
+      no `curl`/`wget` dependency needed on the Playwright base image — `interval: 10s`,
+      `start_period: 15s` to cover first-boot Chromium launch + two Redis connections), matching
+      the existing `db`/`redis` services' pattern.
+- [x] Confirm behavior under `shm_size: 1gb` constraint (docker-compose already sets this for
+      headless Chromium). Verified manually, not just theoretically: launched one real
+      `chromium.launch()` inside the running dev container and opened `maxConcurrentSessions`
+      (3) concurrent `BrowserContext`s/pages — the same one-browser-many-contexts shape
+      `PlaywrightSessionManager` actually uses — each navigating to a `data:` URL with enough
+      rendering weight (400 gradient `<div>`s, several forced layout/paint cycles per page,
+      concurrently across all 3) to actually exercise shared memory, not just idle tabs. No crash;
+      `df -h /dev/shm` inside the container confirms the full `1.0G` is mounted and available.
+      `1gb` is confirmed sufficient for the current `maxConcurrentSessions` default — not proven
+      for a much higher concurrency limit, which nobody has asked for.
+
+**Verification for this increment:** `npm run typecheck`, `npm run lint`, `npm test` (171 tests, up
+from Phase 4's 147 — new `logger.test.ts`/`health-server.test.ts` plus additions to
+`command-handler.test.ts`/`redis-command-consumer.test.ts`/`config.test.ts`), and `npm run build`
+all pass. `docker compose up -d node-worker` (config/healthcheck changes require this, not
+`restart` — see `../cita-watcher-docker/CLAUDE.md`) picked up the new `healthcheck:` and the
+container reached Docker's own `(healthy)` status within `start_period`. Log output from a real
+run confirms the correlation fields actually appear:
+`[node-worker] published worker event command_id=... watch_task_id=... type=check_failed
+retryable=...`.
+
+**Changes not in the original checklist / open follow-up:**
+- **No JSON/structured-file logging, no log shipping.** "Structured" here means "consistently
+  correlated and grep-able," matching what Laravel already does — not a new logging pipeline
+  (Loki/ELK/etc.), which nobody asked for and neither service is set up to ship to today.
+- **Health check is a liveness signal for the two Redis connections only**, not a full readiness
+  probe of "can actually complete a check right now" (browser state, WAF cooldown, etc. aren't
+  considered). Deepening it is future hardening work if the current signal turns out to be
+  insufficient in practice — not assumed here.
+- **`CaptchaSessionRegistry.register()` still has no caller** and **`CdpInputRelay`'s `resolved`
+  signal still has nothing to resume** — both carried over unchanged from Phase 4's own write-up,
+  still blocked on the same open captcha-detection question (Phase 0/1/2), not touched by this
+  phase's logging/retry/health work.
 
 ## Phase 6 — Integration verification
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Page } from "playwright";
 import type { AutomationSession, NavigationOutcome, SessionManager } from "../automation";
+import type { Logger, LogContext } from "../logger";
 import type { CheckFailedEvent, WorkerCommand, WorkerEvent } from "../types";
 
 import { createWorkerCommandHandler } from "./command-handler";
@@ -29,6 +30,28 @@ function fakeEventPublisher(): { publisher: EventPublisher; published: WorkerEve
     };
 
     return { publisher, published };
+}
+
+interface LoggedCall {
+    readonly level: "info" | "error";
+    readonly message: string;
+    readonly context: LogContext | undefined;
+}
+
+function fakeLogger(): { logger: Logger; calls: LoggedCall[] } {
+    const calls: LoggedCall[] = [];
+
+    const build = (base: LogContext): Logger => ({
+        info: (message, context) => {
+            calls.push({ level: "info", message, context: { ...base, ...context } });
+        },
+        error: (message, context) => {
+            calls.push({ level: "error", message, context: { ...base, ...context } });
+        },
+        withContext: (context) => build({ ...base, ...context }),
+    });
+
+    return { logger: build({}), calls };
 }
 
 const COMMAND: WorkerCommand = {
@@ -112,5 +135,90 @@ describe("createWorkerCommandHandler", () => {
         const occurredAtMs = new Date(event.occurredAt).getTime();
         expect(occurredAtMs).toBeGreaterThanOrEqual(before);
         expect(occurredAtMs).toBeLessThanOrEqual(after);
+    });
+
+    it("publishes a retryable check_failed event when checkAvailability throws", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const { publisher, published } = fakeEventPublisher();
+        const runCheck = vi.fn(() => Promise.reject(new Error("net::ERR_CONNECTION_RESET")));
+        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date("2026-08-05T00:00:00Z"), runCheck);
+
+        await handler(COMMAND);
+
+        expect(published).toEqual<CheckFailedEvent[]>([
+            {
+                type: "check_failed",
+                watchTaskId: 42,
+                reason: "Unexpected error: net::ERR_CONNECTION_RESET",
+                retryable: true,
+                occurredAt: "2026-08-05T00:00:00.000Z",
+            },
+        ]);
+    });
+
+    it("still releases the session when checkAvailability throws", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const { publisher } = fakeEventPublisher();
+        const runCheck = vi.fn(() => Promise.reject(new Error("crash")));
+        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date(), runCheck);
+
+        await handler(COMMAND);
+
+        expect(sessionManager.release).toHaveBeenCalledWith(session);
+    });
+
+    it("does not reject when checkAvailability throws a non-Error value", async () => {
+        const sessionManager = fakeSessionManager(fakeSession());
+        const { publisher, published } = fakeEventPublisher();
+        const runCheck = vi.fn((): Promise<NavigationOutcome> => {
+            // eslint-disable-next-line @typescript-eslint/only-throw-error -- deliberately exercising the non-Error branch of toUnexpectedFailureEvent
+            throw "boom";
+        });
+        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date("2026-08-05T00:00:00Z"), runCheck);
+
+        await expect(handler(COMMAND)).resolves.toBeUndefined();
+
+        expect(published).toEqual<CheckFailedEvent[]>([
+            {
+                type: "check_failed",
+                watchTaskId: 42,
+                reason: "Unexpected error: boom",
+                retryable: true,
+                occurredAt: "2026-08-05T00:00:00.000Z",
+            },
+        ]);
+    });
+
+    it("logs an error with command/watch-task correlation when checkAvailability throws", async () => {
+        const sessionManager = fakeSessionManager(fakeSession());
+        const { publisher } = fakeEventPublisher();
+        const { logger, calls } = fakeLogger();
+        const runCheck = vi.fn(() => Promise.reject(new Error("net::ERR_CONNECTION_RESET")));
+        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date(), runCheck, logger);
+
+        await handler(COMMAND);
+
+        const errorCall = calls.find((call) => call.level === "error");
+        expect(errorCall?.context).toMatchObject({ command_id: COMMAND.commandId, watch_task_id: 42 });
+    });
+
+    it("logs info with command/watch-task correlation after publishing", async () => {
+        const sessionManager = fakeSessionManager(fakeSession());
+        const { publisher } = fakeEventPublisher();
+        const { logger, calls } = fakeLogger();
+        const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "waf_rejected", supportId: null }));
+        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date(), runCheck, logger);
+
+        await handler(COMMAND);
+
+        const infoCall = calls.find((call) => call.level === "info");
+        expect(infoCall?.context).toMatchObject({
+            command_id: COMMAND.commandId,
+            watch_task_id: 42,
+            type: "check_failed",
+            retryable: true,
+        });
     });
 });

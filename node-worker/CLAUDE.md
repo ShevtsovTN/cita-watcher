@@ -71,6 +71,22 @@ though — no real captcha has ever been observed, so in practice no `/captcha-w
 binds to a session yet, and `CdpInputRelay`'s `resolved` signal has no automation-side pause point
 to actually resume (`automation/` doesn't pause mid-check for anything). Both are still open,
 carried since Phase 0/2 — not resolved by this wiring, just no longer blocked on it existing.
+Phase 5 is done: `src/logger.ts` (`Logger`, a `ConsoleLogger` singleton with `withContext()` —
+binds `command_id`/`watch_task_id` once, mirroring Laravel's own `Log::withContext()` field names
+so both services' logs are grep-able by the same keys) replaced the plain `console.log`/
+`console.error` calls Phase 4 added, wired into `command-handler.ts` (`info` on every published
+event, `error` on an unexpected exception — see next), `redis-command-consumer.ts` (`error` when
+dropping a malformed payload, previously silent — logs a byte count, never the raw payload, to
+avoid an applicant-PII leak), and `index.ts`. `command-handler.ts` now also catches an uncaught
+exception from `checkAvailability` and publishes a `retryable: true` `CheckFailedEvent` instead of
+letting it propagate and leave the command's `WatchTask` stuck with no event at all — closing the
+gap Phase 4's own write-up flagged; `index.ts`'s `withErrorHandling` is now just the last-resort
+net for what even that can't catch. A new `src/health-server.ts` (`HttpHealthServer`, same
+DI-factory idiom as `captcha/relay-server.ts`) serves `config.health.port`/`HEALTH_PORT` (default
+`4002`), answering `200`/`503` from `() => commandRedis.status === "ready" && eventRedis.status ===
+"ready"` — backs a new `healthcheck:` block on the `node-worker` compose service. `shm_size: 1gb`
+was verified against 3 concurrent real Chromium sessions doing actual rendering work (not just
+theorized) — no crash, confirmed sufficient for the current `maxConcurrentSessions` default.
 
 ## Conventions
 

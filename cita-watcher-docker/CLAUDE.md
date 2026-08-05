@@ -10,13 +10,16 @@ node-worker, and their supporting services for local/dev/prod runs.
 
 **Project stage:** the `event-consumer` service now runs `php artisan watcher:consume-events`
 (Laravel-side implementation is done — see `../docs/APPLICATION_ROADMAP.md` Phase 5). node-worker's
-`messaging/` module and its `index.ts` wiring (Phases 3-4 of `../docs/NODE_WORKER_ROADMAP.md`) are
-both done now, so `node-worker` is an actual running process that consumes `watcher-commands` and
-can publish onto `watcher-events` — but the `command: ["npm", "run", "dev"]` dev-stack has never
-actually been driven end-to-end by a real Laravel-dispatched `WatchTask` yet (that's
-`NODE_WORKER_ROADMAP.md` Phase 6, integration verification, not done). So `event-consumer` now has
-a real counterpart capable of publishing to it, but that path is still unverified live, not
-confirmed working.
+`messaging/` module, its `index.ts` wiring, and its hardening (Phases 3-5 of
+`../docs/NODE_WORKER_ROADMAP.md`) are all done now, so `node-worker` is an actual running process
+that consumes `watcher-commands` and can publish onto `watcher-events` — but the
+`command: ["npm", "run", "dev"]` dev-stack has never actually been driven end-to-end by a real
+Laravel-dispatched `WatchTask` yet (that's `NODE_WORKER_ROADMAP.md` Phase 6, integration
+verification, not done). So `event-consumer` now has a real counterpart capable of publishing to
+it, but that path is still unverified live, not confirmed working. The `node-worker` service also
+now has a `healthcheck:` block (Phase 5) — same pattern as `db`/`redis`'s own `healthcheck:`, just
+polling a plain HTTP endpoint (`HEALTH_PORT`, default `4002`) via `node -e` instead of `pg_isready`/
+`redis-cli ping`, since neither is available on the Playwright base image.
 
 ## Service wiring
 

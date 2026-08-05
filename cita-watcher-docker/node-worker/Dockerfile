@@ -22,5 +22,7 @@ USER pwuser
 
 # CDP screencast relay поднимает свой WS-сервер на этом порту (см. CDP_RELAY_PORT)
 EXPOSE 4001
+# Health-check HTTP endpoint (см. HEALTH_PORT, docker-compose.yml's healthcheck:) — Phase 5
+EXPOSE 4002
 
 CMD ["node", "dist/index.js"]

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Redis } from "ioredis";
 
+import type { Logger, LogContext } from "../logger";
 import { RedisCommandConsumer } from "./redis-command-consumer";
 
 const VALID_PAYLOAD = {
@@ -30,6 +31,19 @@ function fakeRedis(): { redis: Redis; brpop: ReturnType<typeof vi.fn> } {
     const redis = { brpop } as unknown as Redis;
 
     return { redis, brpop };
+}
+
+function fakeLogger(): { logger: Logger; errors: { message: string; context: LogContext | undefined }[] } {
+    const errors: { message: string; context: LogContext | undefined }[] = [];
+    const logger: Logger = {
+        info: vi.fn(),
+        error: (message, context) => {
+            errors.push({ message, context });
+        },
+        withContext: () => logger,
+    };
+
+    return { logger, errors };
 }
 
 describe("RedisCommandConsumer", () => {
@@ -71,6 +85,22 @@ describe("RedisCommandConsumer", () => {
 
         expect(onCommand).toHaveBeenCalledTimes(1);
         expect(onCommand).toHaveBeenCalledWith(VALID_PAYLOAD);
+    });
+
+    it("logs an error (without the raw payload) when dropping a malformed payload", async () => {
+        const { redis, brpop } = fakeRedis();
+        const malformed = "{not json";
+        brpop.mockResolvedValueOnce(["key", malformed]).mockImplementation(() => new Promise(() => undefined));
+        const { logger, errors } = fakeLogger();
+        const consumer = new RedisCommandConsumer(redis, "", 3, vi.fn(() => Promise.resolve()), undefined, logger);
+
+        consumer.start();
+        await flushMicrotasks();
+
+        expect(errors).toHaveLength(1);
+        expect(errors[0]?.message).toContain("malformed");
+        expect(JSON.stringify(errors[0]?.context)).not.toContain("not json");
+        expect(errors[0]?.context).toEqual({ payload_bytes: Buffer.byteLength(malformed) });
     });
 
     it("ignores a brpop timeout (null) and keeps polling", async () => {

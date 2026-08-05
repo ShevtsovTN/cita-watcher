@@ -11,6 +11,7 @@ describe("loadConfig", () => {
             cdpRelay: { port: 4001 },
             health: { port: 4002 },
             maxConcurrentSessions: 3,
+            captcha: { resolutionTimeoutMs: 240_000 },
         });
     });
 
@@ -22,6 +23,7 @@ describe("loadConfig", () => {
             CDP_RELAY_PORT: "5000",
             HEALTH_PORT: "5001",
             MAX_CONCURRENT_SESSIONS: "5",
+            CAPTCHA_RESOLUTION_TIMEOUT_MS: "180000",
         });
 
         expect(config).toEqual({
@@ -29,6 +31,7 @@ describe("loadConfig", () => {
             cdpRelay: { port: 5000 },
             health: { port: 5001 },
             maxConcurrentSessions: 5,
+            captcha: { resolutionTimeoutMs: 180_000 },
         });
     });
 
@@ -64,6 +67,9 @@ describe("loadConfig", () => {
         ["MAX_CONCURRENT_SESSIONS", "0"],
         ["MAX_CONCURRENT_SESSIONS", "-1"],
         ["MAX_CONCURRENT_SESSIONS", "not-a-number"],
+        ["CAPTCHA_RESOLUTION_TIMEOUT_MS", "0"],
+        ["CAPTCHA_RESOLUTION_TIMEOUT_MS", "-1"],
+        ["CAPTCHA_RESOLUTION_TIMEOUT_MS", "not-a-number"],
     ])("throws EnvValidationError when %s is invalid (%s)", (name, value) => {
         expect(() => loadConfig({ [name]: value })).toThrow(EnvValidationError);
     });

@@ -20,6 +20,13 @@ export interface CaptchaRequiredEvent {
     readonly watchTaskId: number;
     /** ISO 8601. */
     readonly occurredAt: string;
+    /**
+     * Opaque token (`../session-token.ts`'s `SessionToken`) identifying the paused
+     * `AutomationSession` — a human needs it to reach `/captcha-ws/<sessionToken>`. Node-worker
+     * doesn't know Laravel's public `APP_URL`, so it publishes the bare token, not a full URL;
+     * building `{APP_URL}/captcha-ws/{sessionToken}` is the consuming (Laravel) side's job.
+     */
+    readonly sessionToken: string;
 }
 
 export interface CheckFailedEvent {

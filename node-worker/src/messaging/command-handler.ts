@@ -22,17 +22,60 @@
  * `outcome-to-event.ts` already makes for `post_submit_unconfirmed`. `index.ts`'s wrapper stays as
  * a last-resort net for failures even this can't catch (e.g. `eventPublisher.publish()` itself
  * throwing because Redis is down).
+ *
+ * Phase 7 addition: `checkAvailability` no longer auto-releases the session for a
+ * `captcha_blocked_slots_offered` outcome (see `../automation/availability-checker.ts`) — this
+ * handler is what actually pauses for a human now. It generates a `SessionToken`, registers the
+ * still-live session with `CaptchaSessionRegistry` (bridging to `index.ts`'s WS relay), publishes
+ * `CaptchaRequiredEvent{sessionToken}` immediately (before waiting, so a human learns about it
+ * promptly), then awaits either `CaptchaSessionRegistry.notifyResolved()` firing or a timeout —
+ * whichever comes first — before releasing the session. Deliberately publishes nothing further
+ * after that: node-worker has no visibility into what a human actually did over the CDP relay
+ * (solved it and continued manually, gave up, ran out of time), and this codebase consistently
+ * avoids reporting a guess as an observation (same principle behind every other
+ * `NavigationOutcome`→event mapping decision).
  */
 
 import type { AvailabilityCheckRunner, SessionManager } from "../automation";
 import { checkAvailability } from "../automation";
+import type { CaptchaSessionRegistry } from "../captcha";
 import { logger as defaultLogger, type Logger } from "../logger";
+import { generateSessionToken, type SessionToken } from "../session-token";
 import type { WorkerCommand, WorkerEvent } from "../types";
 import { mapNavigationOutcomeToCheckFailedEvent } from "./outcome-to-event";
 import type { EventPublisher } from "./redis-event-publisher";
 import type { WorkerCommandHandler } from "./redis-command-consumer";
 
 type Clock = () => Date;
+/** Returns a cancel function, mirroring the real `setTimeout`/`clearTimeout` pair — injectable so tests don't wait for a real multi-minute timeout. */
+type ScheduleTimeout = (ms: number, callback: () => void) => () => void;
+
+const defaultScheduleTimeout: ScheduleTimeout = (ms, callback) => {
+    const handle = setTimeout(callback, ms);
+    return () => {
+        clearTimeout(handle);
+    };
+};
+
+/**
+ * Only a fallback for callers that don't pass `captchaResolutionTimeoutMs` explicitly (matches
+ * `config.ts`'s own `CAPTCHA_RESOLUTION_TIMEOUT_MS` default) — this module doesn't import `config`
+ * directly, since only `index.ts` (the composition root) reads it; every other collaborator here
+ * receives config-derived values through `WorkerCommandHandlerDeps` instead.
+ */
+const DEFAULT_CAPTCHA_RESOLUTION_TIMEOUT_MS = 240_000;
+
+export interface WorkerCommandHandlerDeps {
+    readonly sessionManager: SessionManager;
+    readonly eventPublisher: EventPublisher;
+    readonly captchaRegistry: CaptchaSessionRegistry;
+    readonly captchaResolutionTimeoutMs?: number;
+    readonly now?: Clock;
+    readonly runCheck?: AvailabilityCheckRunner;
+    readonly logger?: Logger;
+    readonly generateToken?: () => SessionToken;
+    readonly scheduleTimeout?: ScheduleTimeout;
+}
 
 function toUnexpectedFailureEvent(error: unknown, watchTaskId: number, occurredAt: string): WorkerEvent {
     const reason = error instanceof Error ? error.message : String(error);
@@ -46,13 +89,19 @@ function toUnexpectedFailureEvent(error: unknown, watchTaskId: number, occurredA
     };
 }
 
-export function createWorkerCommandHandler(
-    sessionManager: SessionManager,
-    eventPublisher: EventPublisher,
-    now: Clock = () => new Date(),
-    runCheck?: AvailabilityCheckRunner,
-    logger: Logger = defaultLogger,
-): WorkerCommandHandler {
+export function createWorkerCommandHandler(deps: WorkerCommandHandlerDeps): WorkerCommandHandler {
+    const {
+        sessionManager,
+        eventPublisher,
+        captchaRegistry,
+        captchaResolutionTimeoutMs = DEFAULT_CAPTCHA_RESOLUTION_TIMEOUT_MS,
+        now = () => new Date(),
+        runCheck,
+        logger = defaultLogger,
+        generateToken = generateSessionToken,
+        scheduleTimeout = defaultScheduleTimeout,
+    } = deps;
+
     return async (command: WorkerCommand): Promise<void> => {
         const commandLogger = logger.withContext({ command_id: command.commandId, watch_task_id: command.watchTaskId });
         const request = {
@@ -63,10 +112,45 @@ export function createWorkerCommandHandler(
 
         let event: WorkerEvent;
         try {
-            const outcome =
+            const { outcome, pendingCaptchaSession } =
                 runCheck === undefined
                     ? await checkAvailability(request, sessionManager)
                     : await checkAvailability(request, sessionManager, runCheck);
+
+            if (outcome.type === "captcha_blocked_slots_offered" && pendingCaptchaSession !== undefined) {
+                const token = generateToken();
+                try {
+                    await eventPublisher.publish({
+                        type: "captcha_required",
+                        watchTaskId: command.watchTaskId,
+                        occurredAt: now().toISOString(),
+                        sessionToken: token,
+                    });
+                    commandLogger.info("published worker event", { type: "captcha_required" });
+
+                    const resolution = await new Promise<"resolved" | "timeout">((resolvePromise) => {
+                        let settled = false;
+                        const cancelTimeout = scheduleTimeout(captchaResolutionTimeoutMs, () => {
+                            if (!settled) {
+                                settled = true;
+                                resolvePromise("timeout");
+                            }
+                        });
+                        captchaRegistry.register(token, pendingCaptchaSession, () => {
+                            if (!settled) {
+                                settled = true;
+                                cancelTimeout();
+                                resolvePromise("resolved");
+                            }
+                        });
+                    });
+                    commandLogger.info("captcha session ended", { resolution });
+                } finally {
+                    captchaRegistry.unregister(token);
+                    await sessionManager.release(pendingCaptchaSession);
+                }
+                return;
+            }
 
             event = mapNavigationOutcomeToCheckFailedEvent(outcome, command.watchTaskId, now().toISOString());
         } catch (error) {

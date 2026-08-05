@@ -5,8 +5,8 @@
  * сессией (уже решён/протух/никогда не выдавался), закрывается отдельным close-кодом — сама форма
  * была валидна, значит это не тот случай, что `INVALID_SESSION_TOKEN_CLOSE_CODE` в
  * `relay-server.ts`. Сам relay кадров скринкаста и ввода (Phase 2, пункты 3-4) сюда не входит —
- * `onBound` получает голую пару `(session, socket)`, что с ними делать дальше — забота вызывающей
- * стороны (не существующей ещё до Phase 4's wiring).
+ * `onBound` получает тройку `(token, session, socket)`, что с ними делать дальше — забота
+ * вызывающей стороны (`index.ts`'s `relayCaptchaSession`, Phase 4 wiring / Phase 7 resolution).
  */
 
 import type { WebSocket } from "ws";
@@ -21,11 +21,13 @@ export const UNKNOWN_SESSION_TOKEN_CLOSE_REASON = "unknown or expired session to
 /**
  * Возвращает обработчик в форме, ожидаемой `WsScreencastRelay`'s `onValidConnection`
  * (`relay-server.ts`) — тот же DI-шов, что `BrowserLauncher`/`WebSocketServerFactory` в других
- * модулях: реестр и колбэк захватываются один раз при постройке.
+ * модулях: реестр и колбэк захватываются один раз при постройке. `onBound` получает и сам токен
+ * (Phase 7) — `index.ts`'s `relayCaptchaSession` теперь нуждается в нём, чтобы вызвать
+ * `registry.notifyResolved(token)`, когда `CdpInputRelay` увидит `"resolved"`.
  */
 export function bindConnectionToRegisteredSession(
     registry: CaptchaSessionRegistry,
-    onBound: (session: AutomationSession, socket: WebSocket) => void,
+    onBound: (token: SessionToken, session: AutomationSession, socket: WebSocket) => void,
 ): (token: SessionToken, socket: WebSocket) => void {
     return (token, socket) => {
         const session = registry.resolve(token);
@@ -35,6 +37,6 @@ export function bindConnectionToRegisteredSession(
             return;
         }
 
-        onBound(session, socket);
+        onBound(token, session, socket);
     };
 }

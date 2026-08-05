@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Page } from "playwright";
 import type { AutomationSession, NavigationOutcome, SessionManager } from "../automation";
+import { InMemoryCaptchaSessionRegistry } from "../captcha";
+import type { CaptchaSessionRegistry } from "../captcha";
 import type { Logger, LogContext } from "../logger";
-import type { CheckFailedEvent, WorkerCommand, WorkerEvent } from "../types";
+import type { SessionToken } from "../session-token";
+import type { CaptchaRequiredEvent, CheckFailedEvent, WorkerCommand, WorkerEvent } from "../types";
 
 import { createWorkerCommandHandler } from "./command-handler";
 import type { EventPublisher } from "./redis-event-publisher";
@@ -32,6 +35,16 @@ function fakeEventPublisher(): { publisher: EventPublisher; published: WorkerEve
     return { publisher, published };
 }
 
+/** Never actually touched by the non-captcha-outcome tests below — just satisfies the required dep. */
+function fakeCaptchaRegistry(): CaptchaSessionRegistry {
+    return {
+        register: vi.fn(),
+        resolve: vi.fn(() => undefined),
+        notifyResolved: vi.fn(),
+        unregister: vi.fn(),
+    };
+}
+
 interface LoggedCall {
     readonly level: "info" | "error";
     readonly message: string;
@@ -52,6 +65,13 @@ function fakeLogger(): { logger: Logger; calls: LoggedCall[] } {
     });
 
     return { logger: build({}), calls };
+}
+
+/** Flushes every microtask queued so far (Node macrotasks always run after the whole pending microtask queue drains) — used to let a paused captcha-branch handler reach its `scheduleTimeout`/`registry.register` calls before the test inspects/drives it further. */
+function flushMicrotasks(): Promise<void> {
+    return new Promise((resolve) => {
+        setImmediate(resolve);
+    });
 }
 
 const COMMAND: WorkerCommand = {
@@ -76,7 +96,13 @@ describe("createWorkerCommandHandler", () => {
         const sessionManager = fakeSessionManager(session);
         const { publisher } = fakeEventPublisher();
         const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" }));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date("2026-08-05T00:00:00Z"), runCheck);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date("2026-08-05T00:00:00Z"),
+            runCheck,
+        });
 
         await handler(COMMAND);
 
@@ -91,7 +117,13 @@ describe("createWorkerCommandHandler", () => {
         const sessionManager = fakeSessionManager(fakeSession());
         const { publisher, published } = fakeEventPublisher();
         const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "requires_clave" }));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date("2026-08-05T00:00:00Z"), runCheck);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date("2026-08-05T00:00:00Z"),
+            runCheck,
+        });
 
         await handler(COMMAND);
 
@@ -111,7 +143,13 @@ describe("createWorkerCommandHandler", () => {
         const sessionManager = fakeSessionManager(session);
         const { publisher } = fakeEventPublisher();
         const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" }));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date(), runCheck);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date(),
+            runCheck,
+        });
 
         await handler(COMMAND);
 
@@ -122,7 +160,12 @@ describe("createWorkerCommandHandler", () => {
         const sessionManager = fakeSessionManager(fakeSession());
         const { publisher, published } = fakeEventPublisher();
         const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" }));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, undefined, runCheck);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            runCheck,
+        });
 
         const before = Date.now();
         await handler(COMMAND);
@@ -142,7 +185,13 @@ describe("createWorkerCommandHandler", () => {
         const sessionManager = fakeSessionManager(session);
         const { publisher, published } = fakeEventPublisher();
         const runCheck = vi.fn(() => Promise.reject(new Error("net::ERR_CONNECTION_RESET")));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date("2026-08-05T00:00:00Z"), runCheck);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date("2026-08-05T00:00:00Z"),
+            runCheck,
+        });
 
         await handler(COMMAND);
 
@@ -162,7 +211,13 @@ describe("createWorkerCommandHandler", () => {
         const sessionManager = fakeSessionManager(session);
         const { publisher } = fakeEventPublisher();
         const runCheck = vi.fn(() => Promise.reject(new Error("crash")));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date(), runCheck);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date(),
+            runCheck,
+        });
 
         await handler(COMMAND);
 
@@ -176,7 +231,13 @@ describe("createWorkerCommandHandler", () => {
             // eslint-disable-next-line @typescript-eslint/only-throw-error -- deliberately exercising the non-Error branch of toUnexpectedFailureEvent
             throw "boom";
         });
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date("2026-08-05T00:00:00Z"), runCheck);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date("2026-08-05T00:00:00Z"),
+            runCheck,
+        });
 
         await expect(handler(COMMAND)).resolves.toBeUndefined();
 
@@ -196,7 +257,14 @@ describe("createWorkerCommandHandler", () => {
         const { publisher } = fakeEventPublisher();
         const { logger, calls } = fakeLogger();
         const runCheck = vi.fn(() => Promise.reject(new Error("net::ERR_CONNECTION_RESET")));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date(), runCheck, logger);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date(),
+            runCheck,
+            logger,
+        });
 
         await handler(COMMAND);
 
@@ -209,7 +277,14 @@ describe("createWorkerCommandHandler", () => {
         const { publisher } = fakeEventPublisher();
         const { logger, calls } = fakeLogger();
         const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "waf_rejected", supportId: null }));
-        const handler = createWorkerCommandHandler(sessionManager, publisher, () => new Date(), runCheck, logger);
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date(),
+            runCheck,
+            logger,
+        });
 
         await handler(COMMAND);
 
@@ -219,6 +294,140 @@ describe("createWorkerCommandHandler", () => {
             watch_task_id: 42,
             type: "check_failed",
             retryable: true,
+        });
+    });
+
+    describe("captcha_blocked_slots_offered", () => {
+        function fakeScheduleTimeout(): { scheduleTimeout: (ms: number, cb: () => void) => () => void; fireTimeout: () => void; cancelCalls: number } {
+            let capturedCallback: (() => void) | undefined;
+            const state = { cancelCalls: 0 };
+            const scheduleTimeout = vi.fn((_ms: number, cb: () => void) => {
+                capturedCallback = cb;
+                return () => {
+                    state.cancelCalls += 1;
+                };
+            });
+            return {
+                scheduleTimeout,
+                fireTimeout: () => {
+                    capturedCallback?.();
+                },
+                get cancelCalls() {
+                    return state.cancelCalls;
+                },
+            };
+        }
+
+        it("publishes CaptchaRequiredEvent with a generated sessionToken before the wait settles, without releasing the session yet", async () => {
+            const session = fakeSession();
+            const sessionManager = fakeSessionManager(session);
+            const { publisher, published } = fakeEventPublisher();
+            const registry = new InMemoryCaptchaSessionRegistry();
+            const { scheduleTimeout } = fakeScheduleTimeout();
+            const generateToken = vi.fn((): SessionToken => "fake-token-123");
+            const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "captcha_blocked_slots_offered", slots: [] }));
+            const handler = createWorkerCommandHandler({
+                sessionManager,
+                eventPublisher: publisher,
+                captchaRegistry: registry,
+                now: () => new Date("2026-08-05T00:00:00Z"),
+                runCheck,
+                generateToken,
+                scheduleTimeout,
+            });
+
+            const handlerPromise = handler(COMMAND);
+            await flushMicrotasks();
+
+            expect(published).toEqual<CaptchaRequiredEvent[]>([
+                { type: "captcha_required", watchTaskId: 42, occurredAt: "2026-08-05T00:00:00.000Z", sessionToken: "fake-token-123" },
+            ]);
+            expect(sessionManager.release).not.toHaveBeenCalled();
+            expect(registry.resolve("fake-token-123")).toBe(session);
+
+            registry.notifyResolved("fake-token-123");
+            await handlerPromise;
+        });
+
+        it("releases the session and unregisters the token once notifyResolved fires, publishing nothing further", async () => {
+            const session = fakeSession();
+            const sessionManager = fakeSessionManager(session);
+            const { publisher, published } = fakeEventPublisher();
+            const registry = new InMemoryCaptchaSessionRegistry();
+            const { scheduleTimeout } = fakeScheduleTimeout();
+            const generateToken = vi.fn((): SessionToken => "fake-token-123");
+            const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "captcha_blocked_slots_offered", slots: [] }));
+            const handler = createWorkerCommandHandler({
+                sessionManager,
+                eventPublisher: publisher,
+                captchaRegistry: registry,
+                now: () => new Date("2026-08-05T00:00:00Z"),
+                runCheck,
+                generateToken,
+                scheduleTimeout,
+            });
+
+            const handlerPromise = handler(COMMAND);
+            await flushMicrotasks();
+            registry.notifyResolved("fake-token-123");
+            await handlerPromise;
+
+            expect(sessionManager.release).toHaveBeenCalledWith(session);
+            expect(registry.resolve("fake-token-123")).toBeUndefined();
+            expect(published).toHaveLength(1);
+        });
+
+        it("releases the session and unregisters the token on timeout, publishing nothing further", async () => {
+            const session = fakeSession();
+            const sessionManager = fakeSessionManager(session);
+            const { publisher, published } = fakeEventPublisher();
+            const registry = new InMemoryCaptchaSessionRegistry();
+            const { scheduleTimeout, fireTimeout } = fakeScheduleTimeout();
+            const generateToken = vi.fn((): SessionToken => "fake-token-123");
+            const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "captcha_blocked_slots_offered", slots: [] }));
+            const handler = createWorkerCommandHandler({
+                sessionManager,
+                eventPublisher: publisher,
+                captchaRegistry: registry,
+                now: () => new Date("2026-08-05T00:00:00Z"),
+                runCheck,
+                generateToken,
+                scheduleTimeout,
+            });
+
+            const handlerPromise = handler(COMMAND);
+            await flushMicrotasks();
+            fireTimeout();
+            await handlerPromise;
+
+            expect(sessionManager.release).toHaveBeenCalledWith(session);
+            expect(registry.resolve("fake-token-123")).toBeUndefined();
+            expect(published).toHaveLength(1);
+        });
+
+        it("cancels the timeout once notifyResolved wins, so it can never also fire", async () => {
+            const sessionManager = fakeSessionManager(fakeSession());
+            const { publisher } = fakeEventPublisher();
+            const registry = new InMemoryCaptchaSessionRegistry();
+            const timeoutHelper = fakeScheduleTimeout();
+            const generateToken = vi.fn((): SessionToken => "fake-token-123");
+            const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "captcha_blocked_slots_offered", slots: [] }));
+            const handler = createWorkerCommandHandler({
+                sessionManager,
+                eventPublisher: publisher,
+                captchaRegistry: registry,
+                now: () => new Date("2026-08-05T00:00:00Z"),
+                runCheck,
+                generateToken,
+                scheduleTimeout: timeoutHelper.scheduleTimeout,
+            });
+
+            const handlerPromise = handler(COMMAND);
+            await flushMicrotasks();
+            registry.notifyResolved("fake-token-123");
+            await handlerPromise;
+
+            expect(timeoutHelper.cancelCalls).toBe(1);
         });
     });
 });

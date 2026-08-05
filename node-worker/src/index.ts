@@ -5,12 +5,11 @@
  * server, and (Phase 5) the health-check HTTP server (see ../../docs/NODE_WORKER_ROADMAP.md
  * Phase 4/5).
  *
- * `CaptchaSessionRegistry.register()` still has no caller anywhere (open since Phase 0/2 — no real
- * captcha has ever been observed, see `automation/site-navigator.ts`'s `PostSubmitUnconfirmed`),
- * so in practice no `/captcha-ws/` connection ever resolves to a registered session yet; `onBound`
- * below is wired and ready for whenever that trigger exists, not exercised end-to-end here. For the
- * same reason, `CdpInputRelay`'s `resolved` signal has no automation-side pause point to actually
- * resume yet — it's logged, not acted on.
+ * Phase 7: `CaptchaSessionRegistry.register()` now has a real caller —
+ * `messaging/command-handler.ts` registers a paused session the moment `automation/` reports
+ * `captcha_blocked_slots_offered`. `relayCaptchaSession` below now threads the token through to
+ * `registry.notifyResolved(token)` when `CdpInputRelay` sees a `"resolved"` WS message, closing the
+ * loop this file's own docblock used to flag as open.
  */
 
 import { Redis } from "ioredis";
@@ -24,12 +23,14 @@ import {
     InMemoryCaptchaSessionRegistry,
     WsScreencastRelay,
     bindConnectionToRegisteredSession,
+    type CaptchaSessionRegistry,
 } from "./captcha";
 import { config } from "./config";
 import { HttpHealthServer } from "./health-server";
 import { logger } from "./logger";
 import type { WorkerCommandHandler } from "./messaging";
 import { RedisCommandConsumer, RedisEventPublisher, createWorkerCommandHandler } from "./messaging";
+import type { SessionToken } from "./session-token";
 
 /**
  * Top-level safety net (Phase 4 checklist: "one failed session doesn't crash the process"). By
@@ -55,14 +56,22 @@ function withErrorHandling(handler: WorkerCommandHandler): WorkerCommandHandler 
  * Pipes CDP screencast frames to the socket and remote input back to CDP for one bound captcha
  * session — the glue `screencast-frame-relay.ts`/`input-relay.ts`'s own docblocks deferred to
  * "Phase 4 wiring, ещё не существует". Resolves once the socket closes, so the caller can track
- * connection lifetime for graceful shutdown.
+ * connection lifetime for graceful shutdown. Phase 7: also forwards a `"resolved"` WS message to
+ * `registry.notifyResolved(token)`, which is what actually lets `command-handler.ts`'s wait settle
+ * and release the session — previously this was a log-only stub with no automation-side effect.
  */
-async function relayCaptchaSession(session: AutomationSession, socket: WebSocket): Promise<void> {
+async function relayCaptchaSession(
+    registry: CaptchaSessionRegistry,
+    token: SessionToken,
+    session: AutomationSession,
+    socket: WebSocket,
+): Promise<void> {
     const sessionLogger = logger.withContext({ session_id: session.id });
     const cdpSession = await session.newCdpSession();
     const frameRelay = new CdpScreencastFrameRelay(cdpSession, socket);
     const inputRelay = new CdpInputRelay(cdpSession, socket, () => {
-        sessionLogger.info("resolved signal received — no automation pause point exists yet to resume (see roadmap Phase 2/4 notes)");
+        registry.notifyResolved(token);
+        sessionLogger.info("resolved signal received, notified the waiting command handler");
     });
 
     await frameRelay.start();
@@ -88,19 +97,26 @@ function main(): void {
     const eventRedis = new Redis({ host: config.redis.host, port: config.redis.port });
 
     const eventPublisher = new RedisEventPublisher(eventRedis, config.redis.keyPrefix);
+    const captchaRegistry = new InMemoryCaptchaSessionRegistry();
     const commandConsumer = new RedisCommandConsumer(
         commandRedis,
         config.redis.keyPrefix,
         config.maxConcurrentSessions,
-        withErrorHandling(createWorkerCommandHandler(sessionManager, eventPublisher)),
+        withErrorHandling(
+            createWorkerCommandHandler({
+                sessionManager,
+                eventPublisher,
+                captchaRegistry,
+                captchaResolutionTimeoutMs: config.captcha.resolutionTimeoutMs,
+            }),
+        ),
     );
 
-    const captchaRegistry = new InMemoryCaptchaSessionRegistry();
     const openSockets = new Set<WebSocket>();
 
-    const onBound = (session: AutomationSession, socket: WebSocket): void => {
+    const onBound = (token: SessionToken, session: AutomationSession, socket: WebSocket): void => {
         openSockets.add(socket);
-        void relayCaptchaSession(session, socket)
+        void relayCaptchaSession(captchaRegistry, token, session, socket)
             .catch((error: unknown) => {
                 logger.error("captcha relay failed", {
                     session_id: session.id,

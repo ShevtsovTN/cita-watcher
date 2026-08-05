@@ -31,6 +31,8 @@ const request: CheckAvailabilityRequest = {
         fullName: "Test Testerson",
         birthYear: 1990,
         nationality: "VENEZUELA",
+        email: "test@example.com",
+        phone: "600111222",
     },
 };
 
@@ -54,13 +56,13 @@ describe("checkAvailability", () => {
         expect(sessionManager.release).toHaveBeenCalledTimes(1);
     });
 
-    it("returns the resolved outcome unchanged", async () => {
+    it("returns the resolved outcome unchanged, with no pendingCaptchaSession", async () => {
         const session = fakeSession();
         const sessionManager = fakeSessionManager(session);
         const outcome: NavigationOutcome = { type: "waf_rejected", supportId: "123" };
         const runCheck = vi.fn(() => Promise.resolve(outcome));
 
-        await expect(checkAvailability(request, sessionManager, runCheck)).resolves.toEqual(outcome);
+        await expect(checkAvailability(request, sessionManager, runCheck)).resolves.toEqual({ outcome });
     });
 
     it("releases the exact session that was acquired", async () => {
@@ -81,5 +83,17 @@ describe("checkAvailability", () => {
         await checkAvailability(request, sessionManager, runCheck);
 
         expect(runCheck).toHaveBeenCalledWith(session.page, request);
+    });
+
+    it("does NOT release the session for a captcha_blocked_slots_offered outcome, and returns it as pendingCaptchaSession", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const outcome: NavigationOutcome = { type: "captcha_blocked_slots_offered", slots: [{ day: "10/09/2026", time: "09:30" }] };
+        const runCheck = vi.fn(() => Promise.resolve(outcome));
+
+        const result = await checkAvailability(request, sessionManager, runCheck);
+
+        expect(result).toEqual({ outcome, pendingCaptchaSession: session });
+        expect(sessionManager.release).not.toHaveBeenCalled();
     });
 });

@@ -19,11 +19,11 @@ function fakeSession(): AutomationSession {
 }
 
 describe("bindConnectionToRegisteredSession", () => {
-    it("calls onBound with the resolved session for a registered token", () => {
+    it("calls onBound with the token and resolved session for a registered token", () => {
         const registry = new InMemoryCaptchaSessionRegistry();
         const token = generateSessionToken();
         const session = fakeSession();
-        registry.register(token, session);
+        registry.register(token, session, vi.fn());
 
         const onBound = vi.fn();
         const socket = fakeSocket();
@@ -31,7 +31,7 @@ describe("bindConnectionToRegisteredSession", () => {
 
         handleConnection(token, socket);
 
-        expect(onBound).toHaveBeenCalledWith(session, socket);
+        expect(onBound).toHaveBeenCalledWith(token, session, socket);
         expect(socket.close).not.toHaveBeenCalled();
     });
 
@@ -50,7 +50,7 @@ describe("bindConnectionToRegisteredSession", () => {
     it("closes the connection for a token that was registered then unregistered", () => {
         const registry = new InMemoryCaptchaSessionRegistry();
         const token = generateSessionToken();
-        registry.register(token, fakeSession());
+        registry.register(token, fakeSession(), vi.fn());
         registry.unregister(token);
 
         const onBound = vi.fn();

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AutomationSession } from "../automation";
 
 import { generateSessionToken } from "../session-token";
@@ -14,7 +14,7 @@ describe("InMemoryCaptchaSessionRegistry", () => {
         const token = generateSessionToken();
         const session = fakeSession("a");
 
-        registry.register(token, session);
+        registry.register(token, session, vi.fn());
 
         expect(registry.resolve(token)).toBe(session);
     });
@@ -29,7 +29,7 @@ describe("InMemoryCaptchaSessionRegistry", () => {
         const registry = new InMemoryCaptchaSessionRegistry();
         const token = generateSessionToken();
 
-        registry.register(token, fakeSession("a"));
+        registry.register(token, fakeSession("a"), vi.fn());
         registry.unregister(token);
 
         expect(registry.resolve(token)).toBeUndefined();
@@ -48,8 +48,8 @@ describe("InMemoryCaptchaSessionRegistry", () => {
         const [tokenA, tokenB] = [generateSessionToken(), generateSessionToken()];
         const [sessionA, sessionB] = [fakeSession("a"), fakeSession("b")];
 
-        registry.register(tokenA, sessionA);
-        registry.register(tokenB, sessionB);
+        registry.register(tokenA, sessionA, vi.fn());
+        registry.register(tokenB, sessionB, vi.fn());
 
         expect(registry.resolve(tokenA)).toBe(sessionA);
         expect(registry.resolve(tokenB)).toBe(sessionB);
@@ -59,9 +59,53 @@ describe("InMemoryCaptchaSessionRegistry", () => {
         const registry = new InMemoryCaptchaSessionRegistry();
         const token = generateSessionToken();
 
-        registry.register(token, fakeSession("a"));
-        registry.register(token, fakeSession("b"));
+        registry.register(token, fakeSession("a"), vi.fn());
+        registry.register(token, fakeSession("b"), vi.fn());
 
         expect(registry.resolve(token)).toEqual(fakeSession("b"));
+    });
+
+    it("notifyResolved calls the registered onResolved callback", () => {
+        const registry = new InMemoryCaptchaSessionRegistry();
+        const token = generateSessionToken();
+        const onResolved = vi.fn();
+
+        registry.register(token, fakeSession("a"), onResolved);
+        registry.notifyResolved(token);
+
+        expect(onResolved).toHaveBeenCalledTimes(1);
+    });
+
+    it("notifyResolved is a no-op for an unknown token", () => {
+        const registry = new InMemoryCaptchaSessionRegistry();
+
+        expect(() => {
+            registry.notifyResolved(generateSessionToken());
+        }).not.toThrow();
+    });
+
+    it("notifyResolved is a no-op after the token has been unregistered", () => {
+        const registry = new InMemoryCaptchaSessionRegistry();
+        const token = generateSessionToken();
+        const onResolved = vi.fn();
+
+        registry.register(token, fakeSession("a"), onResolved);
+        registry.unregister(token);
+        registry.notifyResolved(token);
+
+        expect(onResolved).not.toHaveBeenCalled();
+    });
+
+    it("notifyResolved only calls the callback for the matching token", () => {
+        const registry = new InMemoryCaptchaSessionRegistry();
+        const [tokenA, tokenB] = [generateSessionToken(), generateSessionToken()];
+        const [onResolvedA, onResolvedB] = [vi.fn(), vi.fn()];
+
+        registry.register(tokenA, fakeSession("a"), onResolvedA);
+        registry.register(tokenB, fakeSession("b"), onResolvedB);
+        registry.notifyResolved(tokenA);
+
+        expect(onResolvedA).toHaveBeenCalledTimes(1);
+        expect(onResolvedB).not.toHaveBeenCalled();
     });
 });

@@ -5,10 +5,27 @@
  * Cl@ve" (для этой процедуры анонимный флоу вообще не работает — дальше не идём), либо страница
  * `/icpplus/acInfo` с кнопкой "Entrar" → форма заявителя `/icpplus/acEntrada` → сабмит.
  *
- * Подтверждённый блокер — НЕ капча: WAF (сигнатура F5 BIG-IP ASM, "Request Rejected"/"The
- * requested URL was rejected"), который встал липким на всю сессию после сабмита формы заявителя.
- * Что реально показывается после чистого (не отбитого WAF) сабмита — капча, "нет мест" или список
- * слотов — не подтверждено (recon упёрся в WAF раньше). См. `PostSubmitUnconfirmed`.
+ * Один из блокеров — WAF (сигнатура F5 BIG-IP ASM, "Request Rejected"/"The requested URL was
+ * rejected"), который встаёт липким на всю сессию после сабмита формы заявителя, но не всегда —
+ * см. `WafRejected` и следующий абзац.
+ *
+ * ВАЖНО (ручной recon 2026-08-05, см. ../../../docs/PHASE9_DRY_RUN.md "Manual browser recon" —
+ * это НЕ прогон через node-worker, просто человек в реальном браузере, но данные подтверждены
+ * вживую, не выдуманы): для `POLICIA - RECOGIDA DE TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)`
+ * (Alicante/icpco/p=3) чистый (не отбитый WAF) сабмит формы заявителя ведёт НЕ сразу к
+ * `PostSubmitUnconfirmed`-развязке, а в 5-шаговый визард, которого этот файл пока не моделирует:
+ * меню опций (Solicitar/Consultar/Anular Cita) → `acCitar` ("Paso 2 de 5": телефон+email) →
+ * `acOfertarCita` ("Paso 3 de 5": реальный список слотов + первая реально увиденная в этом проекте
+ * капча — простой ~6-символьный alphanumeric image-челлендж, виджет `eu-captcha` сайта, с audio-
+ * альтернативой; с этого шага стартует жёсткий, серверный 5-минутный таймер — по истечении сабмит
+ * молча не срабатывает и откатывает на выбор провинции, без ошибки) → `acVerificarCita` ("Paso 4
+ * de 5": экран подтверждения данных) → `acGrabarCita` (финальный коммит, не понаблюдён — таймер
+ * истёк раньше). Форма заявителя (`acEntrada`) тоже оказалась trámite-зависимой: для этого
+ * trámite там только N.I.E.+ФИО, без года рождения/национальности/выбора типа документа —
+ * `fillApplicantForm` ниже на такой странице зависнет/упадёт. Другой trámite (`POLICÍA-TOMA DE
+ * HUELLAS...`) в той же провинции реально дал `RequiresClave`. Ничего из этого пока не
+ * реализовано — `runAvailabilityCheck` по-прежнему останавливается на `PostSubmitUnconfirmed`;
+ * моделирование визарда и trámite-зависимой формы — отдельная задача.
  */
 import { type Locator, type Page } from "playwright";
 
@@ -42,9 +59,12 @@ export interface ValidationRejected {
     readonly message: string;
 }
 /**
- * TODO(../../../docs/NODE_WORKER_ROADMAP.md Phase 1): капча vs. "нет мест" vs. реальный список
- * слотов после чистого сабмита не подтверждён — WAF заблокировал recon раньше. Не выдумывать
- * селекторы, заменить на реальные варианты только после подтверждения на живом сайте.
+ * TODO(../../../docs/NODE_WORKER_ROADMAP.md Phase 6): капча и реальный список слотов теперь
+ * подтверждены живым recon (см. file-level комментарий выше и ../../../docs/PHASE9_DRY_RUN.md), но
+ * между сабмитом формы заявителя и ними на самом деле лежит ещё 3-4 непромоделированных здесь шага
+ * (меню опций → `acCitar` → `acOfertarCita` → `acVerificarCita`), поэтому этот outcome пока
+ * остаётся один на все них. Не выдумывать селекторы — заменить на реальные варианты только когда
+ * визард будет промоделирован по-настоящему.
  */
 export interface PostSubmitUnconfirmed {
     readonly type: "post_submit_unconfirmed";

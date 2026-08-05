@@ -213,6 +213,70 @@ kill/restart of the container, not an internal crash. Worth remembering: a conta
 doesn't prove a bug reappeared — check the actual in-process error signature, not just container
 lifecycle events.)*
 
+## Manual browser recon (2026-08-05): a real trámite label, a real captcha, and the real booking flow
+
+The dry run above left "finding a real trámite label" as unstarted recon. Automated recon from
+this dev environment turned out to be blocked anyway: outbound HTTPS to
+`icp.administracionelectronica.gob.es` from inside the `node-worker` container hit a **FortiGate
+Intrusion Prevention** block at the local network level (not the site's own WAF — a plain `curl`
+to the target failed identically, with a MITM'd/untrusted TLS cert, and even unrelated domains
+wouldn't resolve without going through the same proxy). Nothing about that is specific to this
+project; it's a constraint of the network this dev environment happened to run on.
+
+Instead, a human walked the live site directly in a real browser (outside that network's
+restrictions) and reported back what happened at each step, in words, rather than automating
+anything. This is **not** a node-worker-verified result — no node-worker code ran during this
+recon — but it does resolve real unknowns that blocked Phase 1 through Phase 6 for a long time:
+
+- **Confirmed real trámite labels for two provinces.** Cuenca (`icpplus`, `p=16`) has a full
+  extranjería + policía trámite list, including `POLICIA - RECOGIDA DE TARJETA DE IDENTIDAD DE
+  EXTRANJERO (TIE)` and `POLICÍA-TOMA DE HUELLAS (EXPEDICIÓN DE TARJETA) INICIAL, RENOVACIÓN,
+  DUPLICADO Y LEY 14/2013`. Alicante (`icpco`, `p=3`) only offers policía trámites, with the same
+  two options plus `POLICÍA TARJETA CONFLICTO UCRANIA`. Selecting `POLICÍA-TOMA DE HUELLAS` for
+  Alicante/Benidorm produced `RequiresClave` for real (landed on
+  `https://pasarela.clave.gob.es/Proxy2/ServiceProvider`) — the first live confirmation that
+  trámite-level Cl@ve gating, previously only a comment in `site-navigator.ts`, is real behavior.
+- **`POLICIA - RECOGIDA DE TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)` for Alicante/"CNP Benidorm
+  TIE" went all the way through** — past the applicant form, past a captcha, to real slot data.
+  This is the first trámite this project has ever confirmed doesn't dead-end at Cl@ve or the WAF.
+- **The real flow is a 5-step wizard**, materially different from what `site-navigator.ts`'s
+  `runAvailabilityCheck` currently models (province/trámite select → applicant form → one
+  `PostSubmitUnconfirmed` outcome). What actually happens after the applicant form
+  (`acEntrada`/`acValidarEntrada`):
+  1. An options menu (Solicitar Cita / Consultar Citas Confirmadas / Consultar Citas Expediente /
+     Anular Cita) — the site recognizing an existing "expediente" tied to the submitted NIE before
+     it'll let you book, which makes sense specifically for a *recogida* (pickup) trámite.
+  2. `acCitar`, labeled "Paso 2 de 5": phone number + email (with repeat-email confirmation),
+     required.
+  3. `acOfertarCita`, "Paso 3 de 5": a real list of offered slots (three were returned, with real
+     dates/times a few days out) **and, for the first time in this project, a real captcha** — the
+     site's own `eu-captcha` widget, a plain ~6-character alphanumeric image challenge with an
+     audio alternative and a reload link. Nothing exotic — exactly the "human reads an image, types
+     text" shape the `captcha/` module's screencast+input relay was already designed around. A
+     visible on-page countdown starts here: **"DISPONES DE 5 MINUTOS PARA COMPLETAR LA
+     CONFIRMACIÓN DE ESTA CITA."**
+  4. `acVerificarCita`, "Paso 4 de 5": a review screen echoing back everything submitted (identity,
+     phone, email, office, date/time, "Mesa") plus a required "Estoy conforme..." checkbox and a
+     GDPR notice, submitting to `acGrabarCita`.
+  5. `acGrabarCita` — the actual commit. **Not cleanly observed**: by the time step 4 was submitted,
+     the 5-minute window from step 3 had elapsed. The submit didn't error — it silently no-opped and
+     bounced back to province selection, with no reservation made. This confirms the 5-minute
+     window is a real, server-enforced constraint, not just decorative UI: **a human solving a
+     relayed captcha has to get through slot selection, captcha entry, and the review screen in
+     well under 5 minutes, or the whole attempt is lost with no error signal at all.**
+- **The applicant-identity form's fields are trámite-dependent, not fixed.** This trámite's form
+  asked only for a N.I.E. field and "Nombre y apellidos" — no birth year, no nationality select,
+  and only one document-type radio (N.I.E.), not the three (N.I.E./D.N.I./PASAPORTE) `site-navigator
+  .ts`'s `fillApplicantForm` unconditionally handles today. Run as-is against this real page, that
+  function would hang or throw looking for `getByLabel("Año de nacimiento")` /
+  `getByLabel("País de nacionalidad")`, neither of which exists on this trámite's form.
+
+**Not done by this recon, deliberately:** no node-worker code was exercised against any of this —
+`site-navigator.ts` still only models the old single-shot shape. Modeling the 5-step wizard (and
+making the applicant-form step trámite-aware) is real follow-up implementation work, out of scope
+for a documentation pass. See `../docs/NODE_WORKER_ROADMAP.md` Phase 6 for the roadmap-level
+pointer to this same finding.
+
 ## Not covered by this runbook
 
 - **`check_failed` (retryable and terminal) and `captcha_required`** — same mechanism as step 5,
@@ -220,12 +284,12 @@ lifecycle events.)*
   `WorkerEventRouterIntegrationTest` and `HandleCheckFailedUseCaseTest` already cover both paths
   against a real DB and the real Illuminate event dispatcher. (The 2026-08-05 re-run did exercise a
   real `check_failed{retryable: true}` live, incidentally — see above — but `check_completed`/
-  `captcha_required`/`check_failed{retryable: false}` still rely on those tests, not a live run.)
-- **A confirmed real trámite label reaching further into the real site** (applicant form, Cl@ve
-  panel, WAF) — see "Finding a real trámite label" above.
+  `captcha_required`/`check_failed{retryable: false}` still rely on those tests, not a live run;
+  the manual browser recon just above confirms real slot data and a real captcha exist to be found
+  by a future node-worker-driven run, not that node-worker itself has produced either event yet.)
 - **The manual captcha-solving walkthrough** (`APPLICATION_ROADMAP.md` Phase 9's second checklist
   item / `NODE_WORKER_ROADMAP.md` Phase 6's second checklist item) — blocked on node-worker's
   `captcha/` CDP relay ever actually binding a session (`CaptchaSessionRegistry.register()` still
-  has no caller — no real captcha has ever been observed to trigger it) and a human-facing UI for
-  the screencast, which is explicitly not designed yet and out of scope for the Laravel side (see
+  has no caller) and a human-facing UI for the screencast, which is explicitly not designed yet and
+  out of scope for the Laravel side (see
   the root `CLAUDE.md`'s non-goals). Not attempted; not achievable until both of those exist.

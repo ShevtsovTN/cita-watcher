@@ -41,7 +41,8 @@ bugs found and fixed across them (the third: `event-consumer` had been silently 
 almost a day on a Redis `read_timeout` default, unrelated to node-worker itself — see
 `config/database.php`'s `redis.default.read_timeout`). The manual captcha-solving walkthrough is
 still genuinely blocked (needs node-worker's CDP relay to ever actually bind a session, plus an
-undesigned UI), not just deferred. On the node-worker side, `messaging/` (Phase 3 of
+undesigned UI), not just deferred — though a real captcha has since been observed by hand outside
+node-worker entirely; see the recon note below. On the node-worker side, `messaging/` (Phase 3 of
 `docs/NODE_WORKER_ROADMAP.md`) now exists and implements both directions of the Redis contract —
 `RedisCommandConsumer`/`parseWorkerCommand` consuming `WorkerCommand` (including `commandId`) off
 the `watcher-commands` list, and `RedisEventPublisher` publishing `CheckCompletedEvent`/
@@ -62,12 +63,22 @@ Laravel-dispatched command being picked up and resulting in a published event ba
 `watcher-events` under real conditions — `docs/NODE_WORKER_ROADMAP.md` Phase 6's first item — is
 now confirmed live (see the dry-run note above): the actual site was reached over the network and a
 real `TramiteNotFoundError` (a guessed trámite label, never confirmed against the live page) was
-correctly turned into a retryable `CheckFailedEvent` by node-worker's Phase 5 catch-all. What's
-*not* confirmed yet is `check_completed`/`captcha_required`/a real slot listing — that needs a
-trámite label actually confirmed against the live site, which is unstarted recon, not a code gap —
-and the manual captcha-solving walkthrough (Phase 6's second item), still blocked as above. Check
-the relevant roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming
-a later phase's piece exists.
+correctly turned into a retryable `CheckFailedEvent` by node-worker's Phase 5 catch-all. A real
+trámite label, a real slot listing, and — for the first time in this project — a real captcha have
+since all been confirmed to exist, by a human walking the live site directly in a browser
+(2026-08-05, `docs/PHASE9_DRY_RUN.md`'s "Manual browser recon" section): `POLICIA - RECOGIDA DE
+TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)` in Alicante reaches a real, simple ~6-character
+alphanumeric image captcha and real offered slots, three-plus steps past what node-worker's
+`site-navigator.ts` currently models (a 5-step wizard — options menu → phone/email →
+slots+captcha, under a hard server-enforced 5-minute window → review → commit — not the
+single-shot form the code assumes). None of this was run through node-worker itself, so
+`check_completed`/`captcha_required` are still unconfirmed *from node-worker's own code* — that's
+real implementation work (modeling the wizard, making the applicant form trámite-aware), not
+recon, and it hasn't been started. The manual captcha-solving walkthrough (Phase 6's second item)
+is likewise still blocked exactly as before — knowing the captcha's shape doesn't wire up
+`CaptchaSessionRegistry` or design the screencast UI. Check the relevant roadmap
+(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
+piece exists.
 
 ## Cross-service architecture
 

@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Watcher;
 
+use App\Domain\Watcher\Enums\DocumentTypeEnum;
 use App\Domain\Watcher\Enums\WatchTaskNotificationChannelEnum;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
@@ -52,6 +53,8 @@ final class ApplicantDataDoesNotLeakToLogsTest extends TestCase
         $this->assertStringNotContainsString('12345678A', $contents);
         $this->assertStringNotContainsString('juan@example.com', $contents);
         $this->assertStringNotContainsString('600123456', $contents);
+        $this->assertStringNotContainsString('1990', $contents);
+        $this->assertStringNotContainsString('España', $contents);
 
         @unlink($logPath);
     }
@@ -68,6 +71,9 @@ final class ApplicantDataDoesNotLeakToLogsTest extends TestCase
                 fullName: 'Juan Pérez',
                 documentId: '12345678A',
                 email: 'juan@example.com',
+                documentType: DocumentTypeEnum::DNI,
+                birthYear: 1990,
+                nationality: 'España',
                 phone: '600123456',
             ),
             notificationChannel: WatchTaskNotificationChannelEnum::TELEGRAM,

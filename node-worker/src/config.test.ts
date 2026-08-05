@@ -7,7 +7,7 @@ describe("loadConfig", () => {
         const config = loadConfig({});
 
         expect(config).toEqual({
-            redis: { host: "127.0.0.1", port: 6379 },
+            redis: { host: "127.0.0.1", port: 6379, keyPrefix: "laravel-database-" },
             cdpRelay: { port: 4001 },
             maxConcurrentSessions: 3,
         });
@@ -17,15 +17,22 @@ describe("loadConfig", () => {
         const config = loadConfig({
             REDIS_HOST: " redis ",
             REDIS_PORT: "6400",
+            REDIS_KEY_PREFIX: "custom-prefix-",
             CDP_RELAY_PORT: "5000",
             MAX_CONCURRENT_SESSIONS: "5",
         });
 
         expect(config).toEqual({
-            redis: { host: "redis", port: 6400 },
+            redis: { host: "redis", port: 6400, keyPrefix: "custom-prefix-" },
             cdpRelay: { port: 5000 },
             maxConcurrentSessions: 5,
         });
+    });
+
+    it("allows REDIS_KEY_PREFIX to be explicitly empty", () => {
+        const config = loadConfig({ REDIS_KEY_PREFIX: "" });
+
+        expect(config.redis.keyPrefix).toBe("");
     });
 
     it("is frozen", () => {

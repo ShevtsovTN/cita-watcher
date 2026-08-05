@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Watcher\Encryption;
 
+use App\Domain\Watcher\Enums\DocumentTypeEnum;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
 use App\Infrastructure\Watcher\Encryption\LaravelApplicantDataEncryptor;
 use Illuminate\Encryption\Encrypter;
@@ -21,6 +22,9 @@ final class LaravelApplicantDataEncryptorTest extends TestCase
             fullName: 'Juan Pérez',
             documentId: '12345678A',
             email: 'juan@example.com',
+            documentType: DocumentTypeEnum::DNI,
+            birthYear: 1990,
+            nationality: 'España',
             phone: '600123456',
         );
 
@@ -49,6 +53,9 @@ final class LaravelApplicantDataEncryptorTest extends TestCase
             fullName: 'Juan Pérez',
             documentId: '12345678A',
             email: 'juan@example.com',
+            documentType: DocumentTypeEnum::DNI,
+            birthYear: 1990,
+            nationality: 'España',
         );
 
         $encryptor = new LaravelApplicantDataEncryptor($this->makeEncrypter());

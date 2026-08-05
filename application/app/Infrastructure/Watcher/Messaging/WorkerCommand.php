@@ -39,15 +39,18 @@ final readonly class WorkerCommand
             ],
             applicant: [
                 'fullName' => $watchTask->applicantData()->fullName,
+                'documentType' => $watchTask->applicantData()->documentType->value,
                 'documentId' => $watchTask->applicantData()->documentId,
                 'email' => $watchTask->applicantData()->email,
                 'phone' => $watchTask->applicantData()->phone,
+                'birthYear' => $watchTask->applicantData()->birthYear,
+                'nationality' => $watchTask->applicantData()->nationality,
             ],
         );
     }
 
     /**
-     * @return array{commandId: string, type: string, watchTaskId: ?int, procedure: array{province: string, tramiteCode: string}, applicant: array{fullName: string, documentId: string, email: string, phone: ?string}}
+     * @return array{commandId: string, type: string, watchTaskId: ?int, procedure: array{province: string, tramiteCode: string}, applicant: array{fullName: string, documentType: string, documentId: string, email: string, phone: ?string, birthYear: int, nationality: string}}
      */
     public function toArray(): array
     {

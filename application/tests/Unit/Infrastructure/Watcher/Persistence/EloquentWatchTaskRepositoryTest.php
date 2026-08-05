@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Watcher\Persistence;
 
+use App\Domain\Watcher\Enums\DocumentTypeEnum;
 use App\Domain\Watcher\Enums\WatchTaskNotificationChannelEnum;
 use App\Domain\Watcher\Enums\WatchTaskStatusEnum;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
@@ -157,6 +158,9 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
                 fullName: 'Juan Pérez',
                 documentId: '12345678A',
                 email: 'juan@example.com',
+                documentType: DocumentTypeEnum::DNI,
+                birthYear: 1990,
+                nationality: 'España',
                 phone: $phone,
             ),
             notificationChannel: WatchTaskNotificationChannelEnum::TELEGRAM,

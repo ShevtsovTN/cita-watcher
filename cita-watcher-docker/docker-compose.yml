@@ -120,6 +120,10 @@ services:
     restart: unless-stopped
     environment:
       REDIS_HOST: redis
+      # Laravel's redis client prefixes every key/channel (config('database.redis.options.prefix'),
+      # default Str::slug(APP_NAME)-database- — see ../docs/PHASE9_DRY_RUN.md). Must match
+      # application/.env's APP_NAME/REDIS_PREFIX; update both together if either changes.
+      REDIS_KEY_PREFIX: laravel-database-
       CDP_RELAY_PORT: ${CDP_RELAY_PORT:-4001}
       MAX_CONCURRENT_SESSIONS: ${MAX_CONCURRENT_SESSIONS:-3}
     volumes:

@@ -6,7 +6,7 @@
  * отклонит. Для PASAPORTE подтверждённого алгоритма нет — не выдумываем, всегда true.
  */
 
-export type DocumentType = "dni" | "nie" | "pasaporte";
+import type { DocumentType } from "../types";
 
 const CHECK_LETTERS = "TRWAGMYFPDXBNJZSQVHLCKE";
 const NIE_PREFIX_DIGITS: Readonly<Record<string, string>> = Object.freeze({ X: "0", Y: "1", Z: "2" });

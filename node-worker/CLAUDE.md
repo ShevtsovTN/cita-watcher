@@ -41,9 +41,21 @@ WS client), and `input-relay.ts` (`CdpInputRelay`, relays mouse/key input back v
 connection or a real captcha yet — `PostSubmitUnconfirmed` from Phase 1 is still unconfirmed; see
 the Phase 2 write-up in the roadmap for what's still open (nothing calls
 `CaptchaSessionRegistry.register()` yet, and the screencast/input wire contracts are this phase's
-own invention pending a real UI). `src/index.ts` is still an empty stub wiring these pieces
-together, and `messaging/` doesn't exist as a directory yet (Phase 3) — don't assume that logic
-exists; check before referencing it.
+own invention pending a real UI). Phase 3 is done: `src/messaging/` has `redis-command-consumer.ts`
+(`RedisCommandConsumer`, a backpressure-guarded `BRPOP` loop over `watcher-commands`),
+`worker-command-parser.ts` (`parseWorkerCommand`), `redis-event-publisher.ts`
+(`RedisEventPublisher`, publishes to `watcher-events`), `outcome-to-event.ts`
+(`mapNavigationOutcomeToCheckFailedEvent` — every `NavigationOutcome` still only maps to
+`CheckFailedEvent`, since no real captcha or success page has ever been confirmed), and
+`command-handler.ts` (`createWorkerCommandHandler`, the glue that actually runs `checkAvailability`
+per command and publishes the resulting event) — all behind the `index.ts` barrel, tested against
+hand-built fakes plus one real-Redis integration test (`redis-integration.test.ts`, logical DB 15).
+Closed a Phase 1 gap in the same increment: `src/types/commands.ts`'s `ApplicantData` now carries
+`documentType`/`birthYear`/`nationality`, matching the real applicant form and the Laravel-side
+`ApplicantData.php`/`DocumentTypeEnum` — `site-navigator.ts`'s standalone `DocumentIdentity` type is
+gone, replaced by `ApplicantData` directly. `src/index.ts` is still an empty stub — nothing wires
+`automation/`/`captcha/`/`messaging/` together into an actual running process yet (Phase 4); don't
+assume that wiring exists, check before referencing it.
 
 ## Conventions
 

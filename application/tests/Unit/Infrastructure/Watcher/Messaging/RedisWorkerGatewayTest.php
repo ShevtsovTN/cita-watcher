@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Unit\Infrastructure\Watcher\Messaging;
 
+use App\Domain\Watcher\Enums\DocumentTypeEnum;
 use App\Domain\Watcher\Enums\WatchTaskNotificationChannelEnum;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
 use App\Domain\Watcher\ValueObjects\Procedure;
@@ -26,7 +27,7 @@ final class RedisWorkerGatewayTest extends TestCase
             id: 42,
             userId: 7,
             procedure: new Procedure(province: 'Madrid', tramiteCode: 'CITA_DNI'),
-            applicantData: new ApplicantData(fullName: 'Juan Pérez', documentId: '12345678A', email: 'juan@example.com'),
+            applicantData: new ApplicantData(fullName: 'Juan Pérez', documentId: '12345678A', email: 'juan@example.com', documentType: DocumentTypeEnum::DNI, birthYear: 1990, nationality: 'España'),
             notificationChannel: WatchTaskNotificationChannelEnum::TELEGRAM,
             notificationTarget: '123456789',
         );

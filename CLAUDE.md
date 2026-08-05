@@ -44,11 +44,17 @@ the `watcher-commands` list, and `RedisEventPublisher` publishing `CheckComplete
 `CaptchaRequiredEvent`/`CheckFailedEvent` (including `check_failed`'s `retryable`) onto
 `watcher-events` — tested against hand-built fakes plus one real-Redis integration test. The
 `ApplicantData` wire shape was extended in lockstep on both sides (`documentType`/`birthYear`/
-`nationality`) to match what the real applicant form needs. `node-worker/src/index.ts` is still an
-empty stub, though — nothing wires `automation/`/`captcha/`/`messaging/` into an actual running
-process yet (Phase 4), so the contract is confirmed at the code/test level on both sides but not
-yet exercised end-to-end as a live worker process against live Laravel dispatch. Check the relevant
-roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later
+`nationality`) to match what the real applicant form needs. `node-worker/src/index.ts` (Phase 4)
+is no longer a stub either — it now wires `automation/`/`captcha/`/`messaging/` into an actual
+running process (session manager, two dedicated Redis connections, command consumer, WS relay,
+graceful shutdown, top-level error handling), verified manually against the live `docker-compose`
+dev stack (BRPOP connection alive, invalid WS tokens rejected with close code 4400). What's still
+*not* confirmed end-to-end is a real Laravel-dispatched command actually being picked up and
+resulting in a published event back on `watcher-events` under real conditions — that's Phase 6 of
+`docs/NODE_WORKER_ROADMAP.md` (integration verification), not yet done; today's dev stack has never
+been driven with a real `WatchTask`, only Phase 9's `redis-cli`-simulated dry run predating
+node-worker's own implementation. Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`,
+`docs/NODE_WORKER_ROADMAP.md`) before assuming a later
 phase's piece exists.
 
 ## Cross-service architecture

@@ -9,10 +9,14 @@ Dockerfiles, nginx config, and the `docker-compose.yml` that wires together the 
 node-worker, and their supporting services for local/dev/prod runs.
 
 **Project stage:** the `event-consumer` service now runs `php artisan watcher:consume-events`
-(Laravel-side implementation is done — see `../docs/APPLICATION_ROADMAP.md` Phase 5). node-worker
-doesn't publish to the `watcher-events` channel it subscribes to yet — its `messaging/` module is
-still Phase 3 of `../docs/NODE_WORKER_ROADMAP.md` — so the consumer runs but has nothing to consume
-in practice until that lands.
+(Laravel-side implementation is done — see `../docs/APPLICATION_ROADMAP.md` Phase 5). node-worker's
+`messaging/` module and its `index.ts` wiring (Phases 3-4 of `../docs/NODE_WORKER_ROADMAP.md`) are
+both done now, so `node-worker` is an actual running process that consumes `watcher-commands` and
+can publish onto `watcher-events` — but the `command: ["npm", "run", "dev"]` dev-stack has never
+actually been driven end-to-end by a real Laravel-dispatched `WatchTask` yet (that's
+`NODE_WORKER_ROADMAP.md` Phase 6, integration verification, not done). So `event-consumer` now has
+a real counterpart capable of publishing to it, but that path is still unverified live, not
+confirmed working.
 
 ## Service wiring
 

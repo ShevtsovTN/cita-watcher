@@ -10,6 +10,7 @@ use App\Application\Watcher\UseCases\GetWatchTaskUseCase;
 use App\Application\Watcher\UseCases\ListWatchTasksUseCase;
 use App\Application\Watcher\UseCases\PauseWatchTaskUseCase;
 use App\Application\Watcher\UseCases\ResumeWatchTaskUseCase;
+use App\Domain\Watcher\Enums\DocumentTypeEnum;
 use App\Domain\Watcher\Enums\WatchTaskNotificationChannelEnum;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
 use App\Domain\Watcher\ValueObjects\Procedure;
@@ -50,8 +51,11 @@ final class WatchTaskController extends Controller
             ),
             applicantData: new ApplicantData(
                 fullName: $request->string('fullName')->toString(),
+                documentType: $request->enum('documentType', DocumentTypeEnum::class),
                 documentId: $request->string('documentId')->toString(),
                 email: $request->string('email')->toString(),
+                birthYear: $request->integer('birthYear'),
+                nationality: $request->string('nationality')->toString(),
                 phone: $request->string('phone')->toString() ?: null,
             ),
             notificationChannel: $request->enum('notificationChannel', WatchTaskNotificationChannelEnum::class),

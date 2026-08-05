@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Infrastructure\Watcher\Encryption;
 
 use App\Application\Watcher\Ports\ApplicantDataEncryptorInterface;
+use App\Domain\Watcher\Enums\DocumentTypeEnum;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
 use Illuminate\Contracts\Encryption\Encrypter;
 
@@ -25,21 +26,27 @@ final readonly class LaravelApplicantDataEncryptor implements ApplicantDataEncry
     {
         return $this->encrypter->encrypt([
             'fullName' => $applicantData->fullName,
+            'documentType' => $applicantData->documentType->value,
             'documentId' => $applicantData->documentId,
             'email' => $applicantData->email,
             'phone' => $applicantData->phone,
+            'birthYear' => $applicantData->birthYear,
+            'nationality' => $applicantData->nationality,
         ]);
     }
 
     public function decrypt(string $ciphertext): ApplicantData
     {
-        /** @var array{fullName: string, documentId: string, email: string, phone: ?string} $data */
+        /** @var array{fullName: string, documentType: string, documentId: string, email: string, phone: ?string, birthYear: int, nationality: string} $data */
         $data = $this->encrypter->decrypt($ciphertext);
 
         return new ApplicantData(
             fullName: $data['fullName'],
+            documentType: DocumentTypeEnum::from($data['documentType']),
             documentId: $data['documentId'],
             email: $data['email'],
+            birthYear: $data['birthYear'],
+            nationality: $data['nationality'],
             phone: $data['phone'],
         );
     }

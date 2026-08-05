@@ -37,13 +37,19 @@ guard, `watch_task_id`/`command_id` log correlation) all now exist and are wired
 flow was dry-run through a live stack with node-worker simulated by hand via `redis-cli` — see
 `docs/PHASE9_DRY_RUN.md`, including two real dev-stack bugs that dry run found and fixed. The
 manual captcha-solving walkthrough is genuinely blocked (needs node-worker's CDP relay and an
-undesigned UI), not just deferred. `node-worker/src/index.ts` is still an empty stub — its
-`messaging/` module (Phase 3 of `docs/NODE_WORKER_ROADMAP.md`) doesn't exist yet, so **neither**
-side of the Redis contract (`WorkerCommand` outbound — now including a `commandId` — the
-`watcher-events` payloads inbound — now including `check_failed`'s `retryable`) is confirmed
-against a real node-worker implementation yet, only against each other's roadmap notes and the dry
-run's manual simulation. Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`,
-`docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's piece exists.
+undesigned UI), not just deferred. On the node-worker side, `messaging/` (Phase 3 of
+`docs/NODE_WORKER_ROADMAP.md`) now exists and implements both directions of the Redis contract —
+`RedisCommandConsumer`/`parseWorkerCommand` consuming `WorkerCommand` (including `commandId`) off
+the `watcher-commands` list, and `RedisEventPublisher` publishing `CheckCompletedEvent`/
+`CaptchaRequiredEvent`/`CheckFailedEvent` (including `check_failed`'s `retryable`) onto
+`watcher-events` — tested against hand-built fakes plus one real-Redis integration test. The
+`ApplicantData` wire shape was extended in lockstep on both sides (`documentType`/`birthYear`/
+`nationality`) to match what the real applicant form needs. `node-worker/src/index.ts` is still an
+empty stub, though — nothing wires `automation/`/`captcha/`/`messaging/` into an actual running
+process yet (Phase 4), so the contract is confirmed at the code/test level on both sides but not
+yet exercised end-to-end as a live worker process against live Laravel dispatch. Check the relevant
+roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later
+phase's piece exists.
 
 ## Cross-service architecture
 

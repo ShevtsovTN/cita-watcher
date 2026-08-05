@@ -12,25 +12,22 @@
  */
 import { type Locator, type Page } from "playwright";
 
+import type { ApplicantData, DocumentType } from "../types";
 import { resolveCountryCode } from "./country-codes";
-import { type DocumentType, isValidDocumentId } from "./document-id-validator";
+import { isValidDocumentId } from "./document-id-validator";
 import { buildCitarUrl, resolveProvinceRoute } from "./province-routes";
-
-export interface DocumentIdentity {
-    readonly documentType: DocumentType;
-    readonly documentId: string;
-    readonly fullName: string;
-    readonly birthYear: number;
-    /** Метка страны как в `<select>` "País de nacionalidad", резолвится через `resolveCountryCode`. */
-    readonly nationality: string;
-}
 
 export interface CheckAvailabilityRequest {
     /** Метка провинции как в `<select>` "Selecciona Provincia", резолвится через `resolveProvinceRoute`. */
     readonly province: string;
     /** Видимый текст опции trámite — навигатор сам ищет её в обоих `<select>` (extranjería/policía). */
     readonly tramiteLabel: string;
-    readonly applicant: DocumentIdentity;
+    /**
+     * `ApplicantData` (../types/commands.ts) напрямую — до Phase 3 это был отдельный
+     * `DocumentIdentity`, потому что у wire-контракта не было `documentType`/`birthYear`/
+     * `nationality`; теперь, когда поля совпадают, дублировать тип незачем.
+     */
+    readonly applicant: ApplicantData;
 }
 
 export interface RequiresClave {
@@ -127,7 +124,7 @@ async function selectTramite(page: Page, tramiteLabel: string): Promise<void> {
     throw new TramiteNotFoundError(tramiteLabel);
 }
 
-async function fillApplicantForm(page: Page, applicant: DocumentIdentity): Promise<void> {
+async function fillApplicantForm(page: Page, applicant: ApplicantData): Promise<void> {
     const radioLabel = DOCUMENT_TYPE_RADIO_LABELS[applicant.documentType];
 
     // Role "radio" vs. "textbox" keeps these two apart even though they share the same accessible

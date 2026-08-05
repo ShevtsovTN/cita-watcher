@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Tests\Feature\Watcher;
 
+use App\Domain\Watcher\Enums\DocumentTypeEnum;
 use App\Domain\Watcher\Enums\WatchTaskNotificationChannelEnum;
 use App\Domain\Watcher\Repository\WatchTaskRepositoryInterface;
 use App\Domain\Watcher\ValueObjects\ApplicantData;
@@ -180,9 +181,12 @@ final class WatchTaskControllerTest extends TestCase
             'province' => 'Madrid',
             'tramiteCode' => 'CITA_DNI',
             'fullName' => 'Juan Pérez',
+            'documentType' => 'dni',
             'documentId' => '12345678A',
             'email' => 'juan@example.com',
             'phone' => '600123456',
+            'birthYear' => 1990,
+            'nationality' => 'España',
             'notificationChannel' => 'telegram',
             'notificationTarget' => '123456789',
         ];
@@ -194,7 +198,7 @@ final class WatchTaskControllerTest extends TestCase
             id: null,
             userId: $userId,
             procedure: new Procedure(province: 'Madrid', tramiteCode: 'CITA_DNI'),
-            applicantData: new ApplicantData(fullName: 'Juan Pérez', documentId: '12345678A', email: 'juan@example.com'),
+            applicantData: new ApplicantData(fullName: 'Juan Pérez', documentId: '12345678A', email: 'juan@example.com', documentType: DocumentTypeEnum::DNI, birthYear: 1990, nationality: 'España'),
             notificationChannel: WatchTaskNotificationChannelEnum::TELEGRAM,
             notificationTarget: '123456789',
         );

@@ -1,6 +1,6 @@
 # node-worker Roadmap
 
-Status: Phase 0, Phase 1, and Phase 2 done. `automation/` has `PlaywrightSessionManager`
+Status: Phase 0 through Phase 3 done. `automation/` has `PlaywrightSessionManager`
 (browser/session lifecycle + concurrency guard + CDP access), a real-site navigator
 (`site-navigator.ts` + `province-routes.ts`/`country-codes.ts`/`document-id-validator.ts`) confirmed
 against `icp.administracionelectronica.gob.es` via live reconnaissance, and session-teardown
@@ -17,8 +17,19 @@ malformed-token ones), `screencast-frame-relay.ts` (`CdpScreencastFrameRelay`, p
 mouse/key input back via `Input.dispatchMouseEvent`/`Input.dispatchKeyEvent`, plus a `resolved`
 signal to tell automation to resume). None of it has been exercised against a live `/captcha-ws/`
 connection or a real captcha widget yet — see Phase 2 below.
-`../node-worker/src/index.ts` is still an empty stub wiring these pieces together; `messaging/`
-doesn't exist as a directory yet (Phase 3).
+`messaging/` now exists and is fully tested: `redis-command-consumer.ts` (`RedisCommandConsumer`, a
+`BRPOP` loop over the `watcher-commands` list with its own backpressure guard),
+`worker-command-parser.ts` (`parseWorkerCommand`), `redis-event-publisher.ts`
+(`RedisEventPublisher`, publishes to `watcher-events`), `outcome-to-event.ts`
+(`mapNavigationOutcomeToCheckFailedEvent` — every `NavigationOutcome` still maps to
+`CheckFailedEvent`, since no real captcha or success page has ever been confirmed), and
+`command-handler.ts` (`createWorkerCommandHandler`, wiring the above through `automation/`'s
+`checkAvailability`) — see Phase 3 below. Closed a Phase 1 gap along the way: `ApplicantData` now
+carries `documentType`/`birthYear`/`nationality` on both sides (`../application`'s
+`ApplicantData.php`/`DocumentTypeEnum` in lockstep with `types/commands.ts`), so
+`site-navigator.ts`'s own `DocumentIdentity` type is gone.
+`../node-worker/src/index.ts` is still an empty stub — nothing wires `messaging/`/`captcha/`/
+`automation/` together into an actual running process yet (Phase 4).
 This document sequences the work needed to reach a complete, production-ready worker as described
 in the root `../CLAUDE.md`.
 
@@ -273,44 +284,95 @@ eslint's `allowDefaultProject` file-count cap (`maximumDefaultProjectFileMatchCo
   `CaptchaRequiredEvent` still doesn't carry a token or `/captcha-ws/` URL either) — still not
   resolved, now with one more piece (`register()`) waiting on the same answer.
 
-## Phase 3 — Messaging (`messaging/`)
+## Phase 3 — Messaging (`messaging/`) ✅ done
 
-- [ ] Redis command consumer: `BRPOP`/`BLPOP` the raw `watcher-commands` Redis **list** (a plain
-      RPUSH target, not a Laravel queue — see `../application/app/Infrastructure/Watcher/Messaging/RedisWorkerGateway.php`'s
+- [x] Redis command consumer: `BRPOP`s the raw `watcher-commands` Redis **list** (a plain RPUSH
+      target, not a Laravel queue — see `../application/app/Infrastructure/Watcher/Messaging/RedisWorkerGateway.php`'s
       docblock for why this doesn't collide with `queue-worker`'s own Laravel-format job queue of
-      the same logical name), deserialize into `WorkerCommand`, trigger an automation run. Current
-      `WorkerCommand` shape (provisional — the Laravel side, not this one, defined it first; treat
-      as a starting point to confirm, not a spec):
+      the same logical name), deserializes into `WorkerCommand`, triggers an automation run. Added
+      `src/messaging/redis-command-consumer.ts` (`RedisCommandConsumer`, a `BRPOP`-loop with a
+      1-second timeout — short on purpose, see its own docblock: an in-flight blocking `BRPOP`
+      can't be cancelled, so `stop()`'s worst case is bounded by this constant) and
+      `src/messaging/worker-command-parser.ts` (`parseWorkerCommand`, never throws — malformed
+      Redis payloads are dropped, same idiom as `../captcha/input-relay.ts`'s
+      `parseRemoteInputMessage`). "Trigger an automation run" itself is
+      `src/messaging/command-handler.ts`'s `createWorkerCommandHandler` — see below, it needed the
+      `ApplicantData` contract change first. Confirmed (not provisional anymore) `WorkerCommand`
+      shape, now matching `../application`'s actual `WorkerCommand.php`/`ApplicantData.php`:
       ```json
       {
         "commandId": "uuid",
         "type": "check_availability",
         "watchTaskId": 42,
         "procedure": { "province": "...", "tramiteCode": "..." },
-        "applicant": { "fullName": "...", "documentId": "...", "email": "...", "phone": "..." }
+        "applicant": {
+          "fullName": "...", "documentType": "dni|nie|pasaporte", "documentId": "...",
+          "email": "...", "phone": "...", "birthYear": 1990, "nationality": "..."
+        }
       }
       ```
-      `commandId` (added in `../application`'s Phase 8) is for log correlation only — Laravel
-      doesn't track or verify it, so there's no requirement to echo it back precisely, but doing so
-      makes cross-service log correlation (this phase's own "correlate logs by session/command id"
-      item below) actually possible.
-- [ ] Redis event publisher: emit `CheckCompleted` / `CaptchaRequired` / `CheckFailed` as a single
-      `watcher-events` pub/sub channel with a `type` discriminator (symmetric with the outbound
-      shape above), which is what `../application`'s `WorkerEventRouter` already expects. Current
-      expected shapes (same "provisional, confirm don't assume" caveat):
-      ```json
-      {"type": "check_completed", "watchTaskId": 42, "slots": [{"dateTime": "...", "office": "..."}], "checkedAt": "..."}
-      {"type": "captcha_required", "watchTaskId": 42, "occurredAt": "..."}
-      {"type": "check_failed", "watchTaskId": 42, "reason": "...", "retryable": true, "occurredAt": "..."}
-      ```
-      `check_failed`'s `retryable` (added in `../application`'s Phase 8) is this side's call to
-      make: `true` for transient failures worth another scheduled attempt (network timeouts, the
-      site being briefly unreachable), `false` for failures that will never succeed on retry (e.g.
-      an invalid procedure/trámite combination). Laravel trusts this flag as-is — it does no
-      independent judgment of `reason` strings.
-- [ ] Backpressure/concurrency: don't pull more commands than
-      `maxConcurrentSessions` allows in flight.
-- [ ] Tests against a real or in-memory Redis (ioredis is already a dependency).
+- [x] Redis event publisher: emits `CheckCompleted` / `CaptchaRequired` / `CheckFailed` on the
+      single `watcher-events` pub/sub channel with a `type` discriminator, which is what
+      `../application`'s `WorkerEventRouter` already expects. Added
+      `src/messaging/redis-event-publisher.ts` (`EventPublisher`/`RedisEventPublisher`). Event
+      shapes are unchanged from what was already documented here and match `../application`
+      exactly — no surprises on this side.
+- [x] Backpressure/concurrency: `RedisCommandConsumer` tracks its own in-flight count and stops
+      pulling once it hits the constructor's `maxConcurrent`, polling (short injectable `sleep`)
+      instead of relying on `SessionManager`'s own `SessionLimitExceededError` to catch an
+      over-pull after the fact.
+- [x] Tests against a real or in-memory Redis (ioredis is already a dependency). Added
+      `src/messaging/redis-integration.test.ts` — the one test file in the package that opens a
+      real TCP connection (to the `redis` service, logical DB 15 so it never touches whatever
+      Laravel's own DB-0 usage has in it), publish→subscribe and RPUSH→BRPOP round trips. Everything
+      else in `messaging/` (and the rest of the package) still uses hand-built fakes.
+
+**Verification for this increment:** `npm run typecheck`, `npm run lint`, and `npm test` all pass
+inside the running `node-worker` dev container. 147 tests in `node-worker/` (up from Phase 2's
+112) plus, on the Laravel side, all 146 `application/` tests plus `./vendor/bin/pint --test` clean
+after the `ApplicantData` contract change below.
+
+**Changes not in the original checklist / open follow-up:**
+- **`ApplicantData` contract extended on both sides, closing a Phase 1 gap.** The real applicant
+  form (`../node-worker/src/automation/site-navigator.ts`) needs `documentType`/`birthYear`/
+  `nationality`, which neither side's `ApplicantData` had (`site-navigator.ts` was carrying its own
+  parallel `DocumentIdentity` type instead of guessing at the wire contract — see its Phase 1
+  notes). Both sides gained the three fields in lockstep: `../node-worker/src/types/commands.ts`
+  (plus a new shared `DocumentType`, moved out of
+  `../node-worker/src/automation/document-id-validator.ts` since it's now a wire-contract concern,
+  not an `automation/`-only one) and `../application/app/Domain/Watcher/ValueObjects/ApplicantData.php`
+  (plus a new `DocumentTypeEnum`, `birthYear` range-validated `[1900, current year]`, `nationality`
+  non-blank-validated) — touching `WorkerCommand.php`, `LaravelApplicantDataEncryptor.php`,
+  `CreateWatchTaskRequest.php`, `WatchTaskController.php`, and ~25 test fixtures on the Laravel
+  side. `WatchTaskResource.php` deliberately does **not** expose any of it in API responses, same
+  policy as the pre-existing `documentId` omission (Phase 7). With the contract now identical in
+  shape, `CheckAvailabilityRequest.applicant` in `site-navigator.ts` is `ApplicantData` directly —
+  `DocumentIdentity` is gone, not just aliased.
+- **`command.procedure.tramiteCode` is passed to `checkAvailability` as `tramiteLabel` verbatim,
+  with no translation table.** `../application`'s `Procedure` value object validates `tramiteCode`
+  only as a non-blank string — no enum, no per-province code→label table exists or is planned by
+  this change. The operating assumption (deliberate, not an oversight — see
+  `command-handler.ts`'s own docblock) is that whoever creates a `WatchTask` types the exact
+  Spanish `<select>` option text into `tramiteCode`. A real per-province code table (the same scale
+  of recon as `province-routes.ts`) is explicitly left for later if this assumption stops being
+  good enough.
+- **Every `NavigationOutcome` today maps to `CheckFailedEvent`, never `CheckCompleted`/
+  `CaptchaRequired`.** Added `src/messaging/outcome-to-event.ts`
+  (`mapNavigationOutcomeToCheckFailedEvent`) — `requires_clave`/`validation_rejected` →
+  `retryable: false`, `waf_rejected` → `retryable: true` (as Phase 1's own notes already flagged),
+  and `post_submit_unconfirmed` → `retryable: true` too, a deliberately conservative choice: since
+  it's genuinely unknown whether that page was a captcha, "no slots", or a real listing, the event
+  doesn't claim to know either — it just asks for another scheduled attempt. This is not a
+  placeholder to "fix later automatically" — extending past `CheckFailedEvent` requires a new,
+  *confirmed* `NavigationOutcome` variant in `site-navigator.ts` first (i.e. real captcha detection
+  or a confirmed success page), which is still blocked exactly as Phase 1/2 described.
+- **`CaptchaSessionRegistry.register()` (`../captcha/session-registry.ts`, Phase 2) still has no
+  caller.** `command-handler.ts` never produces a `CaptchaRequiredEvent` (see above), so nothing in
+  this increment needed to mint/bind a session token yet. Still the same open question carried
+  since Phase 0.
+- **`../node-worker/src/index.ts` is still an empty stub.** Nothing in this phase wires
+  `RedisCommandConsumer`/`RedisEventPublisher`/`createWorkerCommandHandler`/`WsScreencastRelay`
+  together into an actual running process yet — that's Phase 4.
 
 ## Phase 4 — Wiring (`../node-worker/src/index.ts`)
 

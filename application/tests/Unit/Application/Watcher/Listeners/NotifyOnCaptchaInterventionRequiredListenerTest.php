@@ -42,13 +42,13 @@ final class NotifyOnCaptchaInterventionRequiredListenerTest extends TestCase
         $urlBuilder->shouldReceive('build')
             ->once()
             ->with('abc123')
-            ->andReturn('https://cita-watcher.example.com/captcha-ws/abc123');
+            ->andReturn('https://cita-watcher.example.com/captcha.html?token=abc123');
 
         $channel = Mockery::mock(NotificationChannelInterface::class);
         $channel->shouldReceive('send')
             ->once()
             ->with('123456789', Mockery::on(function (NotificationMessage $message): bool {
-                return str_contains($message->text, 'https://cita-watcher.example.com/captcha-ws/abc123');
+                return str_contains($message->text, 'https://cita-watcher.example.com/captcha.html?token=abc123');
             }))
             ->andReturn(new NotificationDeliveryReport(channel: 'telegram', target: '123456789', status: DeliveryStatusEnum::DELIVERED));
 

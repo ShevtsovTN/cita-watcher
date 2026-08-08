@@ -6,6 +6,7 @@ import {
     type CheckAvailabilityRequest,
     DocumentTypeNotOfferedError,
     PhoneRequiredError,
+    SedeNotFoundError,
     TramiteNotFoundError,
     UnknownNationalityError,
     UnknownProvinceError,
@@ -14,6 +15,7 @@ import {
 } from "./site-navigator";
 
 const TRAMITE_SELECT_PLACEHOLDER = "Despliega para ver trámites disponibles en esta provincia";
+const SEDE_SELECT_SELECTOR = "select#sede";
 const SOLICITAR_CITA_BUTTON_NAME = "Solicitar Cita";
 const CAPTCHA_INPUT_PLACEHOLDER = "Introduce el texto aquí";
 
@@ -42,6 +44,11 @@ function fakeTramiteSelect(optionLabels: readonly string[], onSelect: (label: st
     });
 }
 
+/** Same shape as `fakeTramiteSelect` — `selectSede` reads options the same way `selectTramite` does. */
+function fakeSedeSelect(optionLabels: readonly string[], onSelect: (label: string) => void): Locator {
+    return fakeTramiteSelect(optionLabels, onSelect);
+}
+
 interface OfferedSlotScenario {
     readonly day: string;
     readonly time: string;
@@ -52,6 +59,8 @@ interface PageScenario {
     readonly clavePanelVisible?: boolean;
     readonly validationVisible?: boolean;
     readonly tramiteOptionLists?: readonly (readonly string[])[];
+    /** `undefined` means "no sede select on this fake page" — matches every pre-Phase-9 test not needing one. */
+    readonly sedeOptionLabels?: readonly string[];
     readonly urlAfterEntrar?: string;
     /** Defaults to `true` — matches every pre-wizard test's implicit assumption the radio exists. */
     readonly documentTypeRadioVisible?: boolean;
@@ -75,6 +84,7 @@ interface FakePageState {
     readonly filledTextboxes: Record<string, string>;
     readonly filledLabels: Record<string, string>;
     selectedTramite: string | undefined;
+    selectedSede: string | undefined;
 }
 
 function fakePage(scenario: PageScenario = {}): FakePageState {
@@ -89,6 +99,7 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
         filledTextboxes,
         filledLabels,
         selectedTramite: undefined,
+        selectedSede: undefined,
     };
     let currentUrl = scenario.urlOverride ?? "https://icp.administracionelectronica.gob.es/icpplus/index.html";
 
@@ -98,6 +109,12 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
         }),
     );
     const tramiteGroupLocator = fakeLocator({ all: vi.fn(() => Promise.resolve(tramiteSelects)) });
+    const sedeLocator =
+        scenario.sedeOptionLabels === undefined
+            ? undefined
+            : fakeSedeSelect(scenario.sedeOptionLabels, (label) => {
+                  state.selectedSede = label;
+              });
     const bodyLocator = fakeLocator({ innerText: vi.fn(() => Promise.resolve(scenario.bodyText ?? "")) });
     const clavePanelLocator = fakeLocator({ isVisible: vi.fn(() => Promise.resolve(scenario.clavePanelVisible ?? false)) });
     const validationLocator = fakeLocator({ isVisible: vi.fn(() => Promise.resolve(scenario.validationVisible ?? false)) });
@@ -105,8 +122,13 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
     const page = {
         goto: vi.fn(() => Promise.resolve(null)),
         url: vi.fn(() => currentUrl),
+        waitForTimeout: vi.fn(() => Promise.resolve(undefined)),
         locator: vi.fn((selector: string) => {
             if (selector === "body") return bodyLocator;
+            if (selector === SEDE_SELECT_SELECTOR) {
+                if (sedeLocator === undefined) throw new Error("test scenario has no select#sede — set sedeOptionLabels");
+                return sedeLocator;
+            }
             const citaMatch = /^#cita_(\d+)$/.exec(selector);
             if (citaMatch !== null) {
                 const citaNumber = citaMatch[1] ?? "";
@@ -243,6 +265,53 @@ describe("runAvailabilityCheck", () => {
         const { page } = fakePage({ tramiteOptionLists: [["OTHER A"], ["OTHER B"]] });
 
         await expect(runAvailabilityCheck(page, buildRequest())).rejects.toThrow(TramiteNotFoundError);
+    });
+
+    it("never touches select#sede when request.sede is omitted", async () => {
+        const { page } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"], []],
+            clavePanelVisible: true, // short-circuit before needing "Entrar"/form fakes
+        });
+
+        await runAvailabilityCheck(page, buildRequest());
+
+        expect(page.locator).not.toHaveBeenCalledWith("select#sede");
+    });
+
+    it("selects the sede before the trámite when request.sede is given", async () => {
+        const state = fakePage({
+            sedeOptionLabels: ["Cualquier oficina", "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm"],
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"], []],
+            clavePanelVisible: true,
+        });
+
+        await runAvailabilityCheck(
+            state.page,
+            buildRequest({ sede: "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm" }),
+        );
+
+        expect(state.selectedSede).toBe("CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm");
+        expect(state.selectedTramite).toBe("POLICIA-ASIGNACIÓN DE NIE");
+    });
+
+    it("waits after selecting sede for the site's own cargaTramites() AJAX reload", async () => {
+        const { page } = fakePage({
+            sedeOptionLabels: ["Cualquier oficina", "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm"],
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"], []],
+            clavePanelVisible: true,
+        });
+
+        await runAvailabilityCheck(page, buildRequest({ sede: "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm" }));
+
+        expect(page.waitForTimeout).toHaveBeenCalled();
+    });
+
+    it("throws SedeNotFoundError when the given sede isn't among select#sede's options", async () => {
+        const { page } = fakePage({ sedeOptionLabels: ["Cualquier oficina", "CNP Alcoy, Placeta Les Xiques, S/N, Alcoy"] });
+
+        await expect(runAvailabilityCheck(page, buildRequest({ sede: "Nonexistent Office" }))).rejects.toThrow(
+            SedeNotFoundError,
+        );
     });
 
     it("finds the trámite in the second select when the first doesn't have it", async () => {

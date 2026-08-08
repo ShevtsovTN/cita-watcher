@@ -40,6 +40,17 @@ import { buildCitarUrl, resolveProvinceRoute } from "./province-routes";
 export interface CheckAvailabilityRequest {
     /** Метка провинции как в `<select>` "Selecciona Provincia", резолвится через `resolveProvinceRoute`. */
     readonly province: string;
+    /**
+     * Видимый текст опции `<select id="sede">` ("Selecciona Oficina") — тот же контракт, что и у
+     * `tramiteLabel`: точный видимый испанский текст, не код/id. Optional и обратно совместим:
+     * когда не передан, поведение не меняется — сайт остаётся на своём дефолте "Cualquier oficina"
+     * (то, что было единственным поведением до Phase 9). Подтверждено вживую
+     * (../../../docs/NODE_WORKER_ROADMAP.md Phase 9), что для некоторых trámite (например,
+     * recogida de TIE) это не опционально по сути — выбор конкретной sede фильтрует список
+     * доступных trámite через собственный AJAX-запрос сайта (`cargaTramites()`), так что нужный
+     * trámite может не появиться в `tramiteGrupo[...]` без выбора правильной sede первым шагом.
+     */
+    readonly sede?: string;
     /** Видимый текст опции trámite — навигатор сам ищет её в обоих `<select>` (extranjería/policía). */
     readonly tramiteLabel: string;
     /**
@@ -158,6 +169,13 @@ export class TramiteNotFoundError extends Error {
     }
 }
 
+export class SedeNotFoundError extends Error {
+    public constructor(sede: string) {
+        super(`Sede (office) "${sede}" was not found in the select#sede options on this province's page`);
+        this.name = "SedeNotFoundError";
+    }
+}
+
 export class UnknownNationalityError extends Error {
     public constructor(nationality: string) {
         super(`Unknown nationality "${nationality}": no confirmed country code for it`);
@@ -179,6 +197,9 @@ export class PhoneRequiredError extends Error {
     }
 }
 
+const SEDE_SELECT_SELECTOR = "select#sede";
+/** Confirmed live sufficient for the `cargaTramites()` AJAX reload to land — see `selectSede`'s docblock. */
+const SEDE_AJAX_RELOAD_WAIT_MS = 2000;
 const TRAMITE_SELECT_PLACEHOLDER = "Despliega para ver trámites disponibles en esta provincia";
 const CLAVE_HOSTNAME = "pasarela.clave.gob.es";
 const WAF_SUPPORT_ID_PATTERN = /support id is:\s*<?([\w-]+)>?/i;
@@ -257,6 +278,26 @@ async function detectOfferedSlots(page: Page): Promise<CaptchaBlockedSlotsOffere
     return { type: "captcha_blocked_slots_offered", slots };
 }
 
+/**
+ * Confirmed live (../../../docs/NODE_WORKER_ROADMAP.md Phase 9): `select#sede` is a real, visible
+ * native `<select>` — not a hidden custom widget, despite its `data-live-search="true"` attribute.
+ * `selectOption(..., { force: true })` breaks the page's own `onchange="cargaTramites()"` AJAX
+ * reload of the trámite `<select>`s: `force: true` skips Playwright's normal actionability/event
+ * dispatch, and the site's bot defense silently rejects that AJAX call as a result (returns its
+ * own JS-challenge document instead of a trámite list), leaving the trámite `<select>`s empty.
+ * Plain `selectOption` (no `force`) works — this function deliberately never passes it. The
+ * `waitForTimeout` after selecting mirrors what was confirmed live to be enough for the AJAX
+ * reload to land; there's no loading indicator to wait on instead, since the site gives none.
+ */
+async function selectSede(page: Page, sede: string): Promise<void> {
+    const select = page.locator(SEDE_SELECT_SELECTOR);
+    const optionLabels = await select.locator("option").allTextContents();
+    if (!optionLabels.includes(sede)) throw new SedeNotFoundError(sede);
+
+    await select.selectOption({ label: sede });
+    await page.waitForTimeout(SEDE_AJAX_RELOAD_WAIT_MS);
+}
+
 async function selectTramite(page: Page, tramiteLabel: string): Promise<void> {
     const selects: readonly Locator[] = await page.getByRole("combobox", { name: TRAMITE_SELECT_PLACEHOLDER }).all();
 
@@ -326,6 +367,11 @@ export async function runAvailabilityCheck(page: Page, request: CheckAvailabilit
     await page.goto(buildCitarUrl(route), { waitUntil: "domcontentloaded" });
     const wafAfterProvince = await detectWafRejection(page);
     if (wafAfterProvince !== undefined) return wafAfterProvince;
+
+    // Sede (office) first, deliberately before trámite: selecting a specific sede filters the
+    // trámite <select>s via the site's own cargaTramites() AJAX call — confirmed live some
+    // trámites (e.g. recogida de TIE) only appear in the list for the right office.
+    if (request.sede !== undefined) await selectSede(page, request.sede);
 
     await selectTramite(page, request.tramiteLabel);
     await page.getByRole("button", { name: "Aceptar" }).click();

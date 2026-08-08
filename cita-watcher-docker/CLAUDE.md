@@ -32,6 +32,20 @@ nginx serves as part of Laravel's `public/` with no config changes needed — se
 `../docs/APPLICATION_ROADMAP.md` Phase 11), but the manual captcha-solving walkthrough itself is
 still open: nobody has driven a real captcha through it end-to-end yet, since doing so for real
 means attempting an actual reservation on the live site.
+
+**`node-worker`'s browser now runs headed under Xvfb, not headless** (2026-08-08, `../docs/
+NODE_WORKER_ROADMAP.md` Phase 10 — live testing found the target site's own bot defense blocks
+Playwright headless Chromium specifically, see Phase 9). Both `node-worker/Dockerfile`'s `CMD` and
+this file's node-worker `command:` override wrap the process in `xvfb-run -a` (bundled in the
+`mcr.microsoft.com/playwright` base image) as a result. **Found and fixed a real bug this
+surfaced**: with `xvfb-run` as the container's own PID 1, startup hung forever — Xvfb itself came up
+fine, but `xvfb-run`'s wrapper script never got past waiting for Xvfb's `SIGUSR1` readiness signal,
+a PID-1 signal-handling gotcha with no real init present. Fixed by adding `init: true` to the
+`node-worker` service (Compose's built-in minimal `tini`), confirmed live: the service now reports
+`healthy` and its normal startup log line appears. If `node-worker` is ever seen stuck at
+`health: starting` indefinitely again, this class of problem — not a code bug — is the first thing
+to check (`docker exec ... ps aux`: is `xvfb-run`'s own shell PID 1, or is there a real init above
+it?).
 The `node-worker` service also has a `healthcheck:` block (Phase 5) — same pattern as `db`/`redis`'s
 own `healthcheck:`, just polling a plain HTTP endpoint (`HEALTH_PORT`, default `4002`) via `node -e`
 instead of `pg_isready`/`redis-cli ping`, since neither is available on the Playwright base image.

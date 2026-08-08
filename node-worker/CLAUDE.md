@@ -164,6 +164,22 @@ found, two more attempts hit a *different* new failure — the site's bot-defens
 throwing `__name is not defined` and never completing, before `sede`/trámite selection is even
 reached. Not resolved; carried forward as open follow-up work.
 
+Phase 10 (same day, direct follow-up) shipped what Phase 9 only diagnosed: `session-manager.ts`'s
+real `defaultLauncher` now launches `headless: false` with the confirmed UA/`navigator.webdriver`/
+`--disable-blink-features` recipe (a local `declare const navigator` covers the one DOM global
+needed, `tsconfig.json`'s `lib` stays DOM-free), the Dockerfile `CMD` and compose `command:` both
+wrap the process in `xvfb-run -a` since `headless: false` needs a `DISPLAY`, and `site-navigator.ts`
+gained an optional `CheckAvailabilityRequest.sede` field + `selectSede()` step (before trámite
+selection, plain `selectOption`, never `force: true`) for trámites that only appear once the right
+office is chosen. Along the way, found and fixed a real live bug: `xvfb-run` as the container's own
+PID 1 hung forever waiting on Xvfb's readiness signal — `docker-compose.yml`'s node-worker service
+now sets `init: true` (Compose's built-in `tini`), confirmed live to fix it (service reports
+`healthy`, real startup log line). **Not done this phase**: the wire contract (`Procedure`) still
+has no `sede` field on either side, so a real `WatchTask` still can't specify an office through the
+actual API; no new live attempt was made against the real site to confirm Phase 9's blocker is
+actually resolved end-to-end (deliberate — see Phase 9's note on likely-degraded IP reputation); the
+manual captcha walkthrough and real success detection remain exactly as open as before.
+
 ## Conventions
 
 The same dependency-inversion spirit from the Laravel app applies here even though it isn't

@@ -87,14 +87,18 @@ outcome, `CaptchaSessionRegistry.register()` now has a real caller for the first
 `/captcha-ws/<token>` path) was found and fixed along the way. See `docs/NODE_WORKER_ROADMAP.md`
 Phase 7 for the full write-up. **Deliberately deferred, confirmed with the user beforehand:** the
 Laravel-side half of this same contract change — reading `sessionToken`, building the actual
-`/captcha-ws/<token>` link, and a notification listener to tell a human about it — is unstarted,
-tracked for a separate branch/PR; the node-worker-side change ships safely alone since nothing on
-the Laravel side reads the new field yet. The manual captcha-solving walkthrough (Phase 6's second
-item) is **still** genuinely blocked even after Phase 7 — a session is now reachable via
-`/captcha-ws/<token>`, but nobody is ever told that URL yet (the deferred Laravel piece above), and
-the screencast UI is still undesigned. Steps 4-5 of the wizard (`acVerificarCita`/`acGrabarCita`)
-remain unmodeled too. Check the relevant roadmap (`docs/APPLICATION_ROADMAP.md`,
-`docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's piece exists.
+`/captcha-ws/<token>` link, and a notification listener to tell a human about it — was deliberately
+deferred to a separate branch/PR at the time, since the node-worker-side change shipped safely
+alone with nothing on the Laravel side reading the new field yet. **That deferred piece is now
+done** (`docs/APPLICATION_ROADMAP.md` Phase 10, same week): `WorkerEventRouter::routeCaptchaRequired()`
+reads `sessionToken`, a new `CaptchaSessionUrlBuilderInterface`/`LaravelCaptchaSessionUrlBuilder`
+builds the real link, and a new `NotifyOnCaptchaInterventionRequiredListener` sends it to the human
+through the `WatchTask`'s configured channel. The manual captcha-solving walkthrough itself is
+**still** genuinely blocked even so — a human is now actually told the real `/captcha-ws/<token>`
+URL, but opening it does nothing yet, since the screencast UI is still undesigned. Steps 4-5 of the
+wizard (`acVerificarCita`/`acGrabarCita`) remain unmodeled too. Check the relevant roadmap
+(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
+piece exists.
 
 ## Cross-service architecture
 

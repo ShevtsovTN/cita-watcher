@@ -109,13 +109,13 @@ sessionToken}` promptly, and waits for either `notifyResolved()` or a new config
 before releasing), and a real, previously-inert `cita-watcher-docker/nginx/default.conf` bug
 (a `proxy_pass` trailing slash stripping the `/captcha-ws/` prefix) was found and fixed along the
 way. `createWorkerCommandHandler` moved from 5 positional params to a `WorkerCommandHandlerDeps`
-options object as part of this. 191 tests pass (up from 179). **Deliberately deferred, confirmed
-with the user beforehand:** the Laravel-side half — reading `sessionToken`, building the
-`{APP_URL}/captcha-ws/{sessionToken}` link, and a new notification listener — is a separate,
-unstarted branch/PR; shipping the node-worker side alone is safe since nothing on the Laravel side
-reads the new field yet. The manual captcha-solving walkthrough itself is **still** genuinely
-blocked even after this phase: a session is now reachable via `/captcha-ws/<token>`, but nobody is
-ever told that URL yet, and the screencast UI is still undesigned.
+options object as part of this. 191 tests pass (up from 179). The Laravel-side half — reading
+`sessionToken`, building the `{APP_URL}/captcha-ws/{sessionToken}` link, and a new notification
+listener — was deliberately deferred to a separate branch/PR at the time (shipping the node-worker
+side alone was safe since nothing on the Laravel side read the new field yet), and **is now done**:
+see `../docs/APPLICATION_ROADMAP.md` Phase 10. The manual captcha-solving walkthrough itself is
+**still** genuinely blocked even so: a human is now actually told the real `/captcha-ws/<token>`
+URL, but opening it does nothing yet, since the screencast UI is still undesigned.
 
 ## Conventions
 

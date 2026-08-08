@@ -83,13 +83,16 @@ final class WorkerEventRouterTest extends TestCase
         $repository->shouldReceive('find')->once()->with(42)->andReturn($watchTask);
 
         $dispatcher = Mockery::mock(DomainEventDispatcherInterface::class);
-        $dispatcher->shouldReceive('dispatch')->once()->with(Mockery::type(CaptchaInterventionRequiredEvent::class));
+        $dispatcher->shouldReceive('dispatch')
+            ->once()
+            ->with(Mockery::on(fn(CaptchaInterventionRequiredEvent $event): bool => 'abc123' === $event->sessionToken));
 
         $router = $this->makeRouter($repository, $dispatcher);
 
         $router->route(json_encode([
             'type' => 'captcha_required',
             'watchTaskId' => 42,
+            'sessionToken' => 'abc123',
             'occurredAt' => '2026-08-05T09:00:00+00:00',
         ], JSON_THROW_ON_ERROR));
     }

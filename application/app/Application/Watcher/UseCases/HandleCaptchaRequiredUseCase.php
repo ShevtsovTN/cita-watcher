@@ -23,7 +23,7 @@ final readonly class HandleCaptchaRequiredUseCase
         private DomainEventDispatcherInterface $events,
     ) {}
 
-    public function execute(int $watchTaskId, DateTimeImmutable $occurredAt): void
+    public function execute(int $watchTaskId, string $sessionToken, DateTimeImmutable $occurredAt): void
     {
         $watchTask = $this->repository->find($watchTaskId);
 
@@ -33,6 +33,7 @@ final readonly class HandleCaptchaRequiredUseCase
 
         $this->events->dispatch(new CaptchaInterventionRequiredEvent(
             watchTaskId: $watchTaskId,
+            sessionToken: $sessionToken,
             occurredAt: $occurredAt,
         ));
     }

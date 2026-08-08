@@ -675,18 +675,18 @@ Laravel-side `CaptchaInterventionRequiredEvent`/`HandleCaptchaRequiredUseCase` c
       `/captcha-ws/<token>`, which `extractSessionToken`'s `RELAY_PATH_PREFIX` check would reject.
       Fixed by dropping the trailing slash so nginx forwards the original URI unchanged.
 - [x] 191 tests pass (up from 179); `tsc`/`eslint`/`npm run build` all clean.
-- [ ] **Deliberately deferred, confirmed with the user beforehand**: the Laravel-side half of this
-      contract change. `CaptchaRequiredEvent`'s new `sessionToken` field is safe to ship alone —
-      `WorkerEventRouter::routeCaptchaRequired()` only reads `watchTaskId`/`occurredAt` off the
-      payload today and ignores unknown keys, and nothing currently listens for
-      `CaptchaInterventionRequiredEvent` at all — but reading the field, building the actual
-      `{APP_URL}/captcha-ws/{sessionToken}` link (node-worker deliberately doesn't know Laravel's
-      public URL, so it only publishes the bare token), and a new listener to actually notify a
-      human (Telegram/email, reusing the existing `SendNotificationUseCase` pattern) are unstarted,
-      tracked for a separate branch/PR.
+- [x] **Was deliberately deferred, confirmed with the user beforehand; now done**: the Laravel-side
+      half of this contract change. `WorkerEventRouter::routeCaptchaRequired()` now reads the
+      `sessionToken` field, a new `Application/Watcher/Ports/CaptchaSessionUrlBuilderInterface` /
+      `Infrastructure/Watcher/Captcha/LaravelCaptchaSessionUrlBuilder` builds the actual
+      `{APP_URL}/captcha-ws/{sessionToken}` link (node-worker still deliberately doesn't know
+      Laravel's public URL, so it still only publishes the bare token), and a new
+      `NotifyOnCaptchaInterventionRequiredListener` notifies a human through the `WatchTask`'s
+      configured channel, reusing the existing `SendNotificationUseCase` pattern. Full write-up:
+      `../docs/APPLICATION_ROADMAP.md` Phase 10.
 - [ ] The manual captcha-solving walkthrough itself (Phase 6's second item) is **still** genuinely
-      blocked even after this phase — modeling the pause gets a session as far as being reachable
-      via `/captcha-ws/<token>`, but nobody is ever told that URL yet (the Laravel-side item above),
+      blocked even after this phase and after `../docs/APPLICATION_ROADMAP.md` Phase 10 — a human is
+      now actually told the real `/captcha-ws/<token>` URL, but opening it does nothing yet,
       and the human-facing screencast UI is still undesigned (root `../CLAUDE.md` non-goal). Nothing
       to check off here until both exist.
 

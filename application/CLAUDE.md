@@ -26,11 +26,17 @@ dry-run twice through a live `docker compose` stack — first with node-worker s
 `../docs/PHASE9_DRY_RUN.md` for both runbooks and three real dev-stack bugs found and fixed across
 them (`QUEUE_CONNECTION`, a stale `event-consumer` container, and — found on the real re-run —
 `event-consumer` silently crash-looping on Redis's default read timeout during `Redis::subscribe()`,
-fixed via `config/database.php`'s `redis.default.read_timeout`). The manual captcha-solving
-walkthrough is still genuinely blocked, not just deferred — node-worker's CDP relay exists now but
-never actually binds a session (nothing calls `CaptchaSessionRegistry.register()` — no real captcha
-has ever been observed), and the UI is still undesigned. Check the roadmap before assuming a later
-phase's piece exists.
+fixed via `config/database.php`'s `redis.default.read_timeout`). Phase 10 (also done) is the
+Laravel-side half of a node-worker contract change that had been deliberately deferred to its own
+branch/PR: `WorkerEventRouter::routeCaptchaRequired()` now reads the `sessionToken` node-worker's
+`CaptchaRequiredEvent` publishes, a new `CaptchaSessionUrlBuilderInterface`/
+`LaravelCaptchaSessionUrlBuilder` builds the real `{APP_URL}/captcha-ws/{sessionToken}` link, and a
+new `NotifyOnCaptchaInterventionRequiredListener` sends it to a human through the `WatchTask`'s
+configured channel. The manual captcha-solving walkthrough is still genuinely blocked even so, not
+just deferred — a human is now actually told the real URL, but the screencast UI it points at is
+still undesigned, and (per `../node-worker/CLAUDE.md`) node-worker's CDP relay, while it now has a
+real production caller, still hasn't had an actual captcha solved through it end-to-end. Check the
+roadmap before assuming a later phase's piece exists.
 
 ## Architecture principles (apply to all new business logic)
 

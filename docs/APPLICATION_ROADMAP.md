@@ -532,6 +532,41 @@ to each other before calling `SendNotificationUseCase`; don't skip that translat
   `redis.default` — verified via 7+ minutes with zero new `RedisException` entries post-fix, a clean
   break from the prior ~60s-interval pattern. Full root-cause writeup: `../docs/PHASE9_DRY_RUN.md`.
 
+## Phase 10 — Captcha session URL & notification (Laravel-side half of node-worker Phase 7) ✅ done
+
+This is the Laravel-side half of the contract change that `../docs/NODE_WORKER_ROADMAP.md` Phase 7
+deliberately shipped without (confirmed with the user beforehand, tracked as a separate branch/PR
+at the time) — `CaptchaRequiredEvent` gained a `sessionToken` field with nothing on this side
+reading it yet. That gap is now closed:
+
+- [x] `WorkerEventRouter::routeCaptchaRequired()` reads the `sessionToken` field off the inbound
+      payload and threads it through `HandleCaptchaRequiredUseCase::execute()` into a new
+      `sessionToken` property on `CaptchaInterventionRequiredEvent` (Domain). Treated as required,
+      not optional, since node-worker's `messaging/command-handler.ts` always publishes it before
+      waiting on a human — there's no code path where `captcha_required` fires without one.
+- [x] New narrow port `Application/Watcher/Ports/CaptchaSessionUrlBuilderInterface`
+      (`build(string $sessionToken): string`), implemented by
+      `Infrastructure/Watcher/Captcha/LaravelCaptchaSessionUrlBuilder`. Takes `config('app.url')`
+      as a constructor argument (bound in `WatcherServiceProvider`) rather than reading the
+      `config()` facade directly inside the class, matching `FindWatchTasksDueForCheckUseCase`'s
+      `maxConcurrentSessions` convention from Phase 8 — keeps the class testable with a plain
+      `PHPUnit\TestCase`, no Laravel bootstrap needed. Builds `{APP_URL}/captcha-ws/{sessionToken}`,
+      stripping a trailing slash off `APP_URL` first if present.
+- [x] New `NotifyOnCaptchaInterventionRequiredListener`, registered in
+      `WatcherServiceProvider::boot()` for `CaptchaInterventionRequiredEvent` — the counterpart to
+      Phase 5's `SendNotificationOnSlotsFoundListener`/`SendNotificationOnCheckFailedListener`.
+      Looks up the `WatchTask`, builds the URL via the new port, and sends a notification through
+      the task's configured channel telling a human a captcha needs solving. Closes the gap Phase 5
+      left deliberately open ("`CaptchaInterventionRequiredEvent` intentionally has no listener
+      yet").
+- [x] 150 tests pass (up from 146, all green); Pint clean.
+
+**Still not done, and not this phase's job:** the manual captcha-solving walkthrough (Phase 9's
+second checklist item) remains genuinely blocked — a human can now be told the real
+`/captcha-ws/<token>` URL, but opening it does nothing yet, since the screencast UI itself is
+undesigned and stays an explicit non-goal for the Laravel side (see below). Nothing to check off
+there until that UI exists.
+
 ## Explicit non-goals for this roadmap
 
 - `node-worker` internals — tracked in `../docs/NODE_WORKER_ROADMAP.md`, only consumed here as an

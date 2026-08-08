@@ -690,6 +690,61 @@ Laravel-side `CaptchaInterventionRequiredEvent`/`HandleCaptchaRequiredUseCase` c
       and the human-facing screencast UI is still undesigned (root `../CLAUDE.md` non-goal). Nothing
       to check off here until both exist.
 
+## Phase 8 — Classify the page after a human resolves a captcha ✅ done
+
+Follow-up to Phase 7, prompted by re-reading how the CDP relay (`../captcha/input-relay.ts`)
+actually works: it forwards raw, unscoped `Input.dispatchMouseEvent`/`dispatchKeyEvent` calls for
+the *whole* live page, not just a captcha text field, and `CdpScreencastFrameRelay` streams the
+full page video alongside it. So a connected human doesn't just answer a captcha — once the
+still-undesigned screencast UI exists, they get full remote-control of the browser and would click
+through whatever's left of the 5-step wizard themselves (`acVerificarCita`/`acGrabarCita`
+included), then send `"resolved"` when done. This means node-worker doesn't need to *automate*
+those two steps — `command-handler.ts` just needed to react to `"resolved"` at all, which until now
+it didn't (it only logged the resolution, then released the session and returned, publishing
+nothing further — see Phase 7's own docblock note in `command-handler.ts`, now superseded).
+
+- [x] New `site-navigator.ts` export `classifyPostResolutionOutcome(page, province)`, called from
+      `command-handler.ts` only when `resolution === "resolved"` (never on our own `"timeout"` — a
+      timeout on our side isn't an observation of the page, so classifying it would be exactly the
+      kind of guess this codebase consistently avoids presenting as fact). Reuses the existing
+      `detectWafRejection` and compares `page.url()` against `buildCitarUrl(route)` — the exact URL
+      `runAvailabilityCheck` originally navigated to for this same command — to detect the **one**
+      confirmed-by-recon failure mode (`docs/PHASE9_DRY_RUN.md`'s "Manual browser recon": the site's
+      hard 5-minute window expiring silently bounces back to that same URL, with no error and no
+      reservation made). New `ReservationWindowExpired` type + `PostResolutionOutcome` union
+      (`WafRejected | ReservationWindowExpired | PostSubmitUnconfirmed`) — deliberately **not**
+      folded into `NavigationOutcome`, since `runAvailabilityCheck` itself never returns it.
+- [x] **Deliberately does not** attempt to detect or automate the "Estoy conforme" checkbox, the
+      `acVerificarCita`/`acGrabarCita` submit buttons, or any success screen — none of those have
+      ever been confirmed live (only the timeout-bounce failure mode has), and this codebase's
+      established convention (`PostSubmitUnconfirmed`, every `isVisible().catch(() => false)`
+      detector in `site-navigator.ts`) is to never guess at unconfirmed selectors, especially not
+      for a step that submits a real, irreversible reservation on a real government site. Any other
+      post-resolution page state — including a real success, which has never been observed — falls
+      through to `post_submit_unconfirmed`, same honest-uncertainty choice the rest of the file
+      already makes.
+- [x] New `messaging/outcome-to-event.ts` export `mapPostResolutionOutcomeToCheckFailedEvent`, same
+      shape/pattern as `mapNavigationOutcomeToCheckFailedEvent`, all three cases `retryable: true`.
+      `CheckCompletedEvent` still isn't published anywhere in the codebase — unchanged by this
+      phase, for the same reason as always: no confirmed success page to key off of.
+- [x] `command-handler.ts`: on `resolution === "resolved"`, calls `classifyPostResolutionOutcome`
+      against `pendingCaptchaSession.page` and `request.province`, maps it, and publishes the
+      result — the first and only additional event a captcha-paused command can now produce beyond
+      `CaptchaRequiredEvent`. Runs inside the same inner `try`/`finally` as the rest of the captcha
+      branch, so a thrown error here (e.g. a crashed page) still reaches the outer catch and
+      degrades to the existing `retryable: true` "unexpected error" `CheckFailedEvent`, and
+      `unregister`/`release` in `finally` are unaffected either way.
+- [x] 207 tests pass (up from 199); `tsc`/`eslint` both clean.
+
+**Still open, unchanged by this phase:** the manual captcha-solving walkthrough (Phase 6/7's last
+checklist item) — the screencast UI itself is still undesigned, so nothing has actually driven this
+code against a live `"resolved"` signal yet. `acVerificarCita`/`acGrabarCita`'s real DOM, the
+"Estoy conforme" checkbox, and any real success screen remain completely unconfirmed — this phase
+deliberately did not commission new recon to fill that in, per the trade-off discussed with the
+user before starting (see the `AskUserQuestion` decision: model only the confirmed failure mode,
+`post_submit_unconfirmed` for everything else, rather than guessing at selectors for an
+irreversible real-world booking action).
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

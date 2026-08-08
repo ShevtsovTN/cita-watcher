@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import type { NavigationOutcome } from "../automation";
+import type { NavigationOutcome, PostResolutionOutcome } from "../automation";
 
-import { mapNavigationOutcomeToCheckFailedEvent } from "./outcome-to-event";
+import { mapNavigationOutcomeToCheckFailedEvent, mapPostResolutionOutcomeToCheckFailedEvent } from "./outcome-to-event";
 
 const WATCH_TASK_ID = 42;
 const OCCURRED_AT = "2026-08-05T00:00:00Z";
@@ -80,6 +80,44 @@ describe("mapNavigationOutcomeToCheckFailedEvent", () => {
         const outcome: NavigationOutcome = { type: "post_submit_unconfirmed" };
 
         const event = mapNavigationOutcomeToCheckFailedEvent(outcome, 7, "2026-01-01T00:00:00Z");
+
+        expect(event.type).toBe("check_failed");
+        expect(event.watchTaskId).toBe(7);
+        expect(event.occurredAt).toBe("2026-01-01T00:00:00Z");
+    });
+});
+
+describe("mapPostResolutionOutcomeToCheckFailedEvent", () => {
+    it("maps waf_rejected to a retryable failure, including the support id in the reason", () => {
+        const outcome: PostResolutionOutcome = { type: "waf_rejected", supportId: "abc123" };
+
+        const event = mapPostResolutionOutcomeToCheckFailedEvent(outcome, WATCH_TASK_ID, OCCURRED_AT);
+
+        expect(event.retryable).toBe(true);
+        expect(event.reason).toContain("abc123");
+    });
+
+    it("maps reservation_window_expired to a retryable failure naming the 5-minute window", () => {
+        const outcome: PostResolutionOutcome = { type: "reservation_window_expired" };
+
+        const event = mapPostResolutionOutcomeToCheckFailedEvent(outcome, WATCH_TASK_ID, OCCURRED_AT);
+
+        expect(event.retryable).toBe(true);
+        expect(event.reason.toLowerCase()).toContain("window");
+    });
+
+    it("maps post_submit_unconfirmed to a retryable failure with an honest reason", () => {
+        const outcome: PostResolutionOutcome = { type: "post_submit_unconfirmed" };
+
+        const event = mapPostResolutionOutcomeToCheckFailedEvent(outcome, WATCH_TASK_ID, OCCURRED_AT);
+
+        expect(event.retryable).toBe(true);
+    });
+
+    it("always sets type to check_failed and passes through watchTaskId/occurredAt", () => {
+        const outcome: PostResolutionOutcome = { type: "reservation_window_expired" };
+
+        const event = mapPostResolutionOutcomeToCheckFailedEvent(outcome, 7, "2026-01-01T00:00:00Z");
 
         expect(event.type).toBe("check_failed");
         expect(event.watchTaskId).toBe(7);

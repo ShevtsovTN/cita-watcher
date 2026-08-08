@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Page } from "playwright";
 import type { AutomationSession, NavigationOutcome, SessionManager } from "../automation";
+import { buildCitarUrl, resolveProvinceRoute } from "../automation";
 import { InMemoryCaptchaSessionRegistry } from "../captcha";
 import type { CaptchaSessionRegistry } from "../captcha";
 import type { Logger, LogContext } from "../logger";
@@ -19,8 +20,16 @@ function fakeSessionManager(session: AutomationSession): SessionManager {
     };
 }
 
-function fakeSession(): AutomationSession {
-    return { id: "session-1", page: {} as Page, newCdpSession: vi.fn() };
+function fakeSession(page: Page = {} as Page): AutomationSession {
+    return { id: "session-1", page, newCdpSession: vi.fn() };
+}
+
+/** Minimal `Page` fake covering only what `classifyPostResolutionOutcome` reads: `locator("body").innerText()` and `url()`. */
+function fakePostResolutionPage(url: string, bodyText = ""): Page {
+    return {
+        locator: vi.fn(() => ({ innerText: vi.fn(() => Promise.resolve(bodyText)) })),
+        url: vi.fn(() => url),
+    } as unknown as Page;
 }
 
 function fakeEventPublisher(): { publisher: EventPublisher; published: WorkerEvent[] } {
@@ -319,7 +328,7 @@ describe("createWorkerCommandHandler", () => {
         }
 
         it("publishes CaptchaRequiredEvent with a generated sessionToken before the wait settles, without releasing the session yet", async () => {
-            const session = fakeSession();
+            const session = fakeSession(fakePostResolutionPage("https://icp.administracionelectronica.gob.es/icpplus/acVerificarCita.html"));
             const sessionManager = fakeSessionManager(session);
             const { publisher, published } = fakeEventPublisher();
             const registry = new InMemoryCaptchaSessionRegistry();
@@ -349,8 +358,10 @@ describe("createWorkerCommandHandler", () => {
             await handlerPromise;
         });
 
-        it("releases the session and unregisters the token once notifyResolved fires, publishing nothing further", async () => {
-            const session = fakeSession();
+        it("releases the session and unregisters the token once notifyResolved fires, then classifies and publishes the post-resolution page state", async () => {
+            const route = resolveProvinceRoute("Madrid");
+            if (route === undefined) throw new Error("test fixture expects Madrid to have a confirmed route");
+            const session = fakeSession(fakePostResolutionPage(buildCitarUrl(route)));
             const sessionManager = fakeSessionManager(session);
             const { publisher, published } = fakeEventPublisher();
             const registry = new InMemoryCaptchaSessionRegistry();
@@ -374,7 +385,45 @@ describe("createWorkerCommandHandler", () => {
 
             expect(sessionManager.release).toHaveBeenCalledWith(session);
             expect(registry.resolve("fake-token-123")).toBeUndefined();
-            expect(published).toHaveLength(1);
+            expect(published).toEqual<(CaptchaRequiredEvent | CheckFailedEvent)[]>([
+                { type: "captcha_required", watchTaskId: 42, occurredAt: "2026-08-05T00:00:00.000Z", sessionToken: "fake-token-123" },
+                {
+                    type: "check_failed",
+                    watchTaskId: 42,
+                    reason: "The site's 5-minute reservation window expired before the flow could be completed.",
+                    retryable: true,
+                    occurredAt: "2026-08-05T00:00:00.000Z",
+                },
+            ]);
+        });
+
+        it("publishes an honest post_submit_unconfirmed-based check_failed when the resolved page state can't be interpreted", async () => {
+            const session = fakeSession(
+                fakePostResolutionPage("https://icp.administracionelectronica.gob.es/icpplus/acVerificarCita.html"),
+            );
+            const sessionManager = fakeSessionManager(session);
+            const { publisher, published } = fakeEventPublisher();
+            const registry = new InMemoryCaptchaSessionRegistry();
+            const { scheduleTimeout } = fakeScheduleTimeout();
+            const generateToken = vi.fn((): SessionToken => "fake-token-123");
+            const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "captcha_blocked_slots_offered", slots: [] }));
+            const handler = createWorkerCommandHandler({
+                sessionManager,
+                eventPublisher: publisher,
+                captchaRegistry: registry,
+                now: () => new Date("2026-08-05T00:00:00Z"),
+                runCheck,
+                generateToken,
+                scheduleTimeout,
+            });
+
+            const handlerPromise = handler(COMMAND);
+            await flushMicrotasks();
+            registry.notifyResolved("fake-token-123");
+            await handlerPromise;
+
+            expect(published).toHaveLength(2);
+            expect(published[1]).toMatchObject({ type: "check_failed", retryable: true });
         });
 
         it("releases the session and unregisters the token on timeout, publishing nothing further", async () => {
@@ -406,7 +455,9 @@ describe("createWorkerCommandHandler", () => {
         });
 
         it("cancels the timeout once notifyResolved wins, so it can never also fire", async () => {
-            const sessionManager = fakeSessionManager(fakeSession());
+            const sessionManager = fakeSessionManager(
+                fakeSession(fakePostResolutionPage("https://icp.administracionelectronica.gob.es/icpplus/acVerificarCita.html")),
+            );
             const { publisher } = fakeEventPublisher();
             const registry = new InMemoryCaptchaSessionRegistry();
             const timeoutHelper = fakeScheduleTimeout();

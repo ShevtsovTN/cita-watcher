@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Locator, Page } from "playwright";
 
+import { buildCitarUrl, resolveProvinceRoute } from "./province-routes";
 import {
     type CheckAvailabilityRequest,
     DocumentTypeNotOfferedError,
@@ -8,6 +9,7 @@ import {
     TramiteNotFoundError,
     UnknownNationalityError,
     UnknownProvinceError,
+    classifyPostResolutionOutcome,
     runAvailabilityCheck,
 } from "./site-navigator";
 
@@ -62,6 +64,8 @@ interface PageScenario {
     /** Defaults to `false` — matches every pre-wizard test's `post_submit_unconfirmed` end state. */
     readonly captchaVisible?: boolean;
     readonly offeredSlots?: readonly OfferedSlotScenario[];
+    /** Defaults to the trámite index page — used by `classifyPostResolutionOutcome` tests to simulate `page.url()` after a human's CDP session ends. */
+    readonly urlOverride?: string;
 }
 
 interface FakePageState {
@@ -86,7 +90,7 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
         filledLabels,
         selectedTramite: undefined,
     };
-    let currentUrl = "https://icp.administracionelectronica.gob.es/icpplus/index.html";
+    let currentUrl = scenario.urlOverride ?? "https://icp.administracionelectronica.gob.es/icpplus/index.html";
 
     const tramiteSelects = (scenario.tramiteOptionLists ?? []).map((labels) =>
         fakeTramiteSelect(labels, (label) => {
@@ -398,5 +402,39 @@ describe("runAvailabilityCheck", () => {
 
         await expect(runAvailabilityCheck(page, request)).rejects.toThrow(PhoneRequiredError);
         expect(clicks).not.toContain("Solicitar Cita");
+    });
+});
+
+describe("classifyPostResolutionOutcome", () => {
+    const route = resolveProvinceRoute("Cuenca");
+    if (route === undefined) throw new Error("test fixture expects Cuenca to have a confirmed route");
+    const citarUrl = buildCitarUrl(route);
+
+    it("returns waf_rejected when the page shows the WAF rejection text", async () => {
+        const { page } = fakePage({
+            bodyText: "The requested URL was rejected. Please consult with your administrador. Your support ID is: <123>",
+        });
+
+        const outcome = await classifyPostResolutionOutcome(page, "Cuenca");
+
+        expect(outcome).toEqual({ type: "waf_rejected", supportId: "123" });
+    });
+
+    it("returns reservation_window_expired when the page bounced back to the trámite entry URL", async () => {
+        const { page } = fakePage({ urlOverride: citarUrl });
+
+        const outcome = await classifyPostResolutionOutcome(page, "Cuenca");
+
+        expect(outcome).toEqual({ type: "reservation_window_expired" });
+    });
+
+    it("returns post_submit_unconfirmed for any other page state", async () => {
+        const { page } = fakePage({
+            urlOverride: "https://icp.administracionelectronica.gob.es/icpplus/acVerificarCita.html",
+        });
+
+        const outcome = await classifyPostResolutionOutcome(page, "Cuenca");
+
+        expect(outcome).toEqual({ type: "post_submit_unconfirmed" });
     });
 });

@@ -96,9 +96,17 @@ builds the real link, and a new `NotifyOnCaptchaInterventionRequiredListener` se
 through the `WatchTask`'s configured channel. The manual captcha-solving walkthrough itself is
 **still** genuinely blocked even so — a human is now actually told the real `/captcha-ws/<token>`
 URL, but opening it does nothing yet, since the screencast UI is still undesigned. Steps 4-5 of the
-wizard (`acVerificarCita`/`acGrabarCita`) remain unmodeled too. Check the relevant roadmap
-(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
-piece exists.
+wizard (`acVerificarCita`/`acGrabarCita`) remain unmodeled — deliberately: the CDP relay turned out
+to give a connected human full, unscoped remote-control of the whole page (not just a captcha
+field), so once the screencast UI exists a human would click through those two steps themselves,
+not node-worker. What node-worker gained instead (`docs/NODE_WORKER_ROADMAP.md` Phase 8, same
+week): `command-handler.ts` now reacts to a human's `"resolved"` signal by classifying the page
+they left it on (`site-navigator.ts`'s new `classifyPostResolutionOutcome`) and publishing an
+honest `CheckFailedEvent` about it — the one confirmed failure mode (the site's 5-minute window
+expiring) gets its own reason string; anything else, including a real success (never observed
+live), still falls through to the existing conservative `post_submit_unconfirmed` handling. Check
+the relevant roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming
+a later phase's piece exists.
 
 ## Cross-service architecture
 

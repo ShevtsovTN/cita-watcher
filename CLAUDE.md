@@ -93,20 +93,30 @@ alone with nothing on the Laravel side reading the new field yet. **That deferre
 done** (`docs/APPLICATION_ROADMAP.md` Phase 10, same week): `WorkerEventRouter::routeCaptchaRequired()`
 reads `sessionToken`, a new `CaptchaSessionUrlBuilderInterface`/`LaravelCaptchaSessionUrlBuilder`
 builds the real link, and a new `NotifyOnCaptchaInterventionRequiredListener` sends it to the human
-through the `WatchTask`'s configured channel. The manual captcha-solving walkthrough itself is
-**still** genuinely blocked even so — a human is now actually told the real `/captcha-ws/<token>`
-URL, but opening it does nothing yet, since the screencast UI is still undesigned. Steps 4-5 of the
-wizard (`acVerificarCita`/`acGrabarCita`) remain unmodeled — deliberately: the CDP relay turned out
-to give a connected human full, unscoped remote-control of the whole page (not just a captcha
-field), so once the screencast UI exists a human would click through those two steps themselves,
-not node-worker. What node-worker gained instead (`docs/NODE_WORKER_ROADMAP.md` Phase 8, same
-week): `command-handler.ts` now reacts to a human's `"resolved"` signal by classifying the page
-they left it on (`site-navigator.ts`'s new `classifyPostResolutionOutcome`) and publishing an
-honest `CheckFailedEvent` about it — the one confirmed failure mode (the site's 5-minute window
-expiring) gets its own reason string; anything else, including a real success (never observed
-live), still falls through to the existing conservative `post_submit_unconfirmed` handling. Check
-the relevant roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming
-a later phase's piece exists.
+through the `WatchTask`'s configured channel. Steps 4-5 of the wizard (`acVerificarCita`/
+`acGrabarCita`) remain unmodeled — deliberately: the CDP relay turned out to give a connected human
+full, unscoped remote-control of the whole page (not just a captcha field), so once a human can
+actually reach the relay they'd click through those two steps themselves, not node-worker. What
+node-worker gained instead (`docs/NODE_WORKER_ROADMAP.md` Phase 8, same week): `command-handler.ts`
+now reacts to a human's `"resolved"` signal by classifying the page they left it on
+(`site-navigator.ts`'s new `classifyPostResolutionOutcome`) and publishing an honest
+`CheckFailedEvent` about it — the one confirmed failure mode (the site's 5-minute window expiring)
+gets its own reason string; anything else, including a real success (never observed live), still
+falls through to the existing conservative `post_submit_unconfirmed` handling.
+
+The link a human was told pointed straight at `/captcha-ws/<token>` — the raw WebSocket endpoint
+itself, which does nothing when opened in a browser — until `docs/APPLICATION_ROADMAP.md` Phase 11
+(same week) closed that gap: `application/public/captcha.html`, a static HTML/JS page with no
+build step, served directly by nginx (not a Laravel route/view — nginx already used
+`application/public/` as its content root), actually connects to the relay, renders the live
+screencast on a canvas, and relays mouse/keyboard input plus a `"resolved"` signal back.
+`LaravelCaptchaSessionUrlBuilder` now points there instead. Verified against a throwaway mock relay
+(Playwright-driven, see that phase's write-up) and against the real `docker-compose` stack's 4400/
+4404 close-code paths — **not** against a real captcha, which would mean attempting a real
+reservation. That live walkthrough is the one thing still open: the page a human needs now exists,
+but nobody has actually solved a real captcha through it end-to-end yet. Check the relevant roadmap
+(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
+piece exists.
 
 ## Cross-service architecture
 

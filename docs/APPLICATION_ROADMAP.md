@@ -561,11 +561,62 @@ reading it yet. That gap is now closed:
       yet").
 - [x] 150 tests pass (up from 146, all green); Pint clean.
 
-**Still not done, and not this phase's job:** the manual captcha-solving walkthrough (Phase 9's
-second checklist item) remains genuinely blocked — a human can now be told the real
-`/captcha-ws/<token>` URL, but opening it does nothing yet, since the screencast UI itself is
-undesigned and stays an explicit non-goal for the Laravel side (see below). Nothing to check off
-there until that UI exists.
+**Still not done at the time, not this phase's job:** the manual captcha-solving walkthrough
+(Phase 9's second checklist item) remained genuinely blocked — a human could now be told the real
+`/captcha-ws/<token>` URL, but opening it did nothing yet, since the screencast UI itself was
+undesigned. Closed by Phase 11, below.
+
+## Phase 11 — Screencast UI static page ✅ done
+
+The link Phase 10 built pointed straight at `/captcha-ws/{sessionToken}` — the bare WebSocket
+endpoint nginx proxies to node-worker. Opening that in a browser does nothing: no HTML, just a
+protocol upgrade. This phase is the page that actually makes the link usable.
+
+- [x] New `application/public/captcha.html` — a single self-contained HTML/CSS/JS page, no
+      framework, no build step. Reads `?token=` from its own URL, opens a same-origin `WebSocket`
+      to `/captcha-ws/{token}`, renders each `screencast_frame` (base64 JPEG) onto a `<canvas>`,
+      maps clicks/drags on the canvas to the CDP viewport's pixel space (the relay applies no
+      scaling and sends no metadata, so the client has to), and forwards `mouse`/`key` events plus
+      a `"resolved"` signal on demand — the exact wire shapes already implemented and tested in
+      `../node-worker/src/captcha/` (`screencast-frame-relay.ts`/`input-relay.ts`), consumed as-is
+      here, not modified. Typed text is captured via a visually-hidden but genuinely focused
+      `<input>`, using its native `input` event (not raw `keydown`) to derive `char` events, so
+      IME/composition behaves correctly. UI text is in Spanish — the actual audience is a human
+      solving a Spanish government site's captcha.
+- [x] **Deliberately not a Laravel route/view.** nginx already serves `application/public/` as its
+      content root (`cita-watcher-docker/nginx/default.conf`'s `location /` falls through to a
+      literal static file on disk before trying `index.php`), so dropping the page there serves it
+      immediately with **zero** nginx/compose/Laravel-routing changes — Laravel itself never
+      becomes aware the file exists. The token travels as a query string
+      (`captcha.html?token=...`), not a path segment, specifically so it never competes with
+      Laravel's own front-controller routing.
+- [x] `LaravelCaptchaSessionUrlBuilder::build()` now returns `{APP_URL}/captcha.html?token=
+      {sessionToken}` instead of the bare WS endpoint; its test and
+      `NotifyOnCaptchaInterventionRequiredListenerTest`'s fixture URL updated to match.
+      `CaptchaSessionUrlBuilderInterface`'s docblock updated accordingly.
+- [x] Verification, given a real captcha can't be solved safely as part of a routine check (it
+      would attempt an actual, irreversible reservation on the live government site): a throwaway
+      Playwright-driven script (not committed) stood up a local HTTP+WS mock relay serving the real
+      `captcha.html` fetched live from nginx, fed it synthetic `screencast_frame`s, and drove real
+      mouse/keyboard interaction against it — confirmed the canvas renders, click coordinates map
+      correctly, typed text produces the right `keyDown`/`char`/`keyUp` sequence, the "He
+      terminado" button sends `{"type":"resolved"}`, and an abrupt disconnect renders a clear
+      closed-state message. Separately, real infra was exercised end-to-end against the running
+      `docker-compose` stack (`nginx` → `node-worker`) with both a malformed token (real `4400`
+      close) and a well-formed-but-unregistered one (real `4404` close) — both surfaced correctly
+      in the UI. Caught and fixed one real bug this way: a `mousedown` on the canvas wasn't
+      actually keeping the hidden input focused, because the browser's own default mousedown
+      focus-handling (canvas isn't natively focusable) blurred it right back out immediately after
+      the page's own `.focus()` call — needed `event.preventDefault()` in that handler to suppress
+      the browser's default and let the explicit `.focus()` win.
+      `php artisan test`/Pint clean (150 tests, unchanged count — only fixture updates, no new PHP
+      tests, since the page itself has no PHP to unit-test).
+
+**Still open, not this phase's job:** the manual captcha-solving walkthrough itself — a human
+actually solving a real captcha through this page, end-to-end, against the live site. The page now
+exists and was verified as thoroughly as is safe to do outside a real reservation attempt, but
+nobody has run it against a real session yet. Known, documented limitation carried into this page:
+no modifier-key support (Shift/Ctrl/Alt) — the relay's own wire contract doesn't carry them.
 
 ## Explicit non-goals for this roadmap
 
@@ -574,4 +625,7 @@ there until that UI exists.
 - Docker/nginx/compose changes beyond the single `event-consumer` re-enable noted in Phase 5 —
   tracked under `cita-watcher-docker/CLAUDE.md`.
 - Any frontend/UI work for viewing the captcha screencast — out of scope for the Laravel side
-  itself beyond exposing whatever the WebSocket relay needs from `app`/`nginx`.
+  itself beyond exposing whatever the WebSocket relay needs from `app`/`nginx`. Phase 11's
+  `captcha.html` doesn't contradict this: it has zero Laravel code path touching it, and lives
+  under `public/` purely because that's nginx's already-existing content root, not because Laravel
+  serves it.

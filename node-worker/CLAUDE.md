@@ -113,9 +113,7 @@ options object as part of this. 191 tests pass (up from 179). The Laravel-side h
 `sessionToken`, building the `{APP_URL}/captcha-ws/{sessionToken}` link, and a new notification
 listener — was deliberately deferred to a separate branch/PR at the time (shipping the node-worker
 side alone was safe since nothing on the Laravel side read the new field yet), and **is now done**:
-see `../docs/APPLICATION_ROADMAP.md` Phase 10. The manual captcha-solving walkthrough itself is
-**still** genuinely blocked even so: a human is now actually told the real `/captcha-ws/<token>`
-URL, but opening it does nothing yet, since the screencast UI is still undesigned.
+see `../docs/APPLICATION_ROADMAP.md` Phase 10.
 
 Phase 8 is done: `command-handler.ts` used to do nothing after a captcha session's `"resolved"`
 signal beyond releasing it — now it does one more thing. The CDP relay
@@ -133,9 +131,16 @@ success screen for what would be a real, irreversible booking action. New
 `messaging/outcome-to-event.ts` export `mapPostResolutionOutcomeToCheckFailedEvent` maps all three
 cases to `retryable: true`; `CheckCompletedEvent` still isn't published anywhere, unchanged, since
 no real `acGrabarCita` success page has ever been observed. 207 tests pass (up from 199). Full
-write-up: `../docs/NODE_WORKER_ROADMAP.md` Phase 8. The manual captcha-solving walkthrough is
-**still** blocked exactly as before — this phase only changed what happens once a human *has*
-resolved one, not whether the screencast UI exists yet for them to do that through.
+write-up: `../docs/NODE_WORKER_ROADMAP.md` Phase 8. This phase only changed what happens once a
+human *has* resolved a session, not whether they had a way to do that in the first place — that
+part shipped separately, same week, on the `../application` side (`../docs/APPLICATION_ROADMAP.md`
+Phase 11): `application/public/captcha.html`, a static page served directly by nginx, actually
+connects to this relay and renders it, so `LaravelCaptchaSessionUrlBuilder`'s link now points
+somewhere real instead of at the bare `/captcha-ws/<token>` WebSocket endpoint. The one thing still
+open is the live walkthrough itself — a real captcha, solved by a human through that page, has
+never actually happened end-to-end (the page was verified against a throwaway mock relay and
+against this stack's real 4400/4404 close-code paths, deliberately not against the real site, which
+would mean attempting a real reservation).
 
 ## Conventions
 

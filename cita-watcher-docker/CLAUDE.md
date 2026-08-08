@@ -22,9 +22,16 @@ since `application/config/database.php`'s `redis.default` connection never set i
 `read_timeout`. `queue-worker` never hit this because Laravel's redis queue driver polls with its
 own bounded `BLPOP` internally. Fixed on the `application/` side (`read_timeout` now `-1`), not in
 this directory — noted here because it's exactly the kind of thing that looks like a
-`docker-compose.yml`/infra problem (a container stuck restarting) but isn't one. The manual
-captcha-solving walkthrough (`NODE_WORKER_ROADMAP.md` Phase 6's second item) is still genuinely
-blocked — `node-worker`'s `/captcha-ws/` relay exists but nothing ever binds a session to it yet.
+`docker-compose.yml`/infra problem (a container stuck restarting) but isn't one. A previously-inert
+bug in this directory's own `nginx/default.conf` was found and fixed since then, too: a trailing
+slash on `location /captcha-ws/`'s `proxy_pass` was stripping the matched prefix before forwarding,
+so node-worker would have received `/<token>` instead of `/captcha-ws/<token>` and rejected every
+connection — see `../docs/NODE_WORKER_ROADMAP.md` Phase 7. `node-worker`'s `/captcha-ws/` relay now
+has a real caller and a real page pointing at it (`application/public/captcha.html`, a static page
+nginx serves as part of Laravel's `public/` with no config changes needed — see
+`../docs/APPLICATION_ROADMAP.md` Phase 11), but the manual captcha-solving walkthrough itself is
+still open: nobody has driven a real captcha through it end-to-end yet, since doing so for real
+means attempting an actual reservation on the live site.
 The `node-worker` service also has a `healthcheck:` block (Phase 5) — same pattern as `db`/`redis`'s
 own `healthcheck:`, just polling a plain HTTP endpoint (`HEALTH_PORT`, default `4002`) via `node -e`
 instead of `pg_isready`/`redis-cli ping`, since neither is available on the Playwright base image.

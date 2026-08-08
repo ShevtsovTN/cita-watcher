@@ -572,15 +572,15 @@ retryable=...`.
       run — that needed a confirmed real trámite label, which was unstarted recon at the time. See
       the follow-up note directly below: that recon has since happened, by hand, outside node-worker
       entirely.
-- [ ] Manual captcha-solving walkthrough through the `/captcha-ws/` relay via nginx. **Still
-      genuinely blocked, not attempted**: `CaptchaSessionRegistry.register()` has no caller, and the
-      human-facing screencast UI is explicitly undesigned (root `../CLAUDE.md`'s non-goals). What
-      *has* changed since this was last written: a real captcha has now actually been observed (see
-      below), and `site-navigator.ts` now detects reaching it (see the next checklist item) — the
-      open question is no longer "does a captcha even exist here", it's purely "wire the existing
-      relay machinery up to a live session and pause execution for a human", which is unchanged in
-      scope and genuinely bigger than what the next item covers (see its own closing paragraph).
-      Nothing to check off here until both the caller and the UI exist.
+- [ ] Manual captcha-solving walkthrough through the `/captcha-ws/` relay via nginx. **Still not
+      attempted, for a narrower reason than when this line was first written.** At the time,
+      `CaptchaSessionRegistry.register()` had no caller and the screencast UI didn't exist at all —
+      both are now done (`register()`'s caller: Phase 7 below; the UI:
+      `application/public/captcha.html`, `../docs/APPLICATION_ROADMAP.md` Phase 11). What's left
+      isn't missing machinery, it's that nobody has actually pointed a human at a real captcha
+      through this now-complete pipeline — doing so for real means letting the flow attempt an
+      actual reservation on the live government site, which hasn't been done as part of routine
+      verification work. Nothing to check off here until that live run actually happens.
 - [x] Model the confirmed post-identity-form wizard (options menu → `acCitar` → `acOfertarCita`) in
       `site-navigator.ts`, and make `fillApplicantForm` trámite-aware. Done 2026-08-05, same day as
       the manual recon below, as a deliberately scoped follow-up to it (confirmed with the user
@@ -736,14 +736,16 @@ nothing further — see Phase 7's own docblock note in `command-handler.ts`, now
       `unregister`/`release` in `finally` are unaffected either way.
 - [x] 207 tests pass (up from 199); `tsc`/`eslint` both clean.
 
-**Still open, unchanged by this phase:** the manual captcha-solving walkthrough (Phase 6/7's last
-checklist item) — the screencast UI itself is still undesigned, so nothing has actually driven this
-code against a live `"resolved"` signal yet. `acVerificarCita`/`acGrabarCita`'s real DOM, the
-"Estoy conforme" checkbox, and any real success screen remain completely unconfirmed — this phase
-deliberately did not commission new recon to fill that in, per the trade-off discussed with the
-user before starting (see the `AskUserQuestion` decision: model only the confirmed failure mode,
-`post_submit_unconfirmed` for everything else, rather than guessing at selectors for an
-irreversible real-world booking action).
+**Still open, unchanged by this phase:** at the time this phase landed, the screencast UI didn't
+exist yet, so nothing had actually driven this code against a live `"resolved"` signal. That's since
+changed — `application/public/captcha.html` (`../docs/APPLICATION_ROADMAP.md` Phase 11) is a real
+page now — but the manual captcha-solving walkthrough itself (Phase 6/7's last checklist item)
+remains open regardless, since running it for real means attempting an actual reservation.
+`acVerificarCita`/`acGrabarCita`'s real DOM, the "Estoy conforme" checkbox, and any real success
+screen remain completely unconfirmed — this phase deliberately did not commission new recon to fill
+that in, per the trade-off discussed with the user before starting (see the `AskUserQuestion`
+decision: model only the confirmed failure mode, `post_submit_unconfirmed` for everything else,
+rather than guessing at selectors for an irreversible real-world booking action).
 
 ## Explicit non-goals for this roadmap
 

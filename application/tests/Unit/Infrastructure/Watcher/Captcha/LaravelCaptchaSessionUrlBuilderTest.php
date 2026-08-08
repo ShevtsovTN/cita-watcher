@@ -9,12 +9,12 @@ use PHPUnit\Framework\TestCase;
 
 final class LaravelCaptchaSessionUrlBuilderTest extends TestCase
 {
-    public function test_it_builds_the_captcha_ws_url_from_the_app_url(): void
+    public function test_it_builds_the_captcha_html_url_from_the_app_url(): void
     {
         $builder = new LaravelCaptchaSessionUrlBuilder('https://cita-watcher.example.com');
 
         $this->assertSame(
-            'https://cita-watcher.example.com/captcha-ws/abc123',
+            'https://cita-watcher.example.com/captcha.html?token=abc123',
             $builder->build('abc123'),
         );
     }
@@ -24,7 +24,7 @@ final class LaravelCaptchaSessionUrlBuilderTest extends TestCase
         $builder = new LaravelCaptchaSessionUrlBuilder('https://cita-watcher.example.com/');
 
         $this->assertSame(
-            'https://cita-watcher.example.com/captcha-ws/abc123',
+            'https://cita-watcher.example.com/captcha.html?token=abc123',
             $builder->build('abc123'),
         );
     }

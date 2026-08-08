@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Resolver captcha — Cita Watcher</title>
+<style>
+    :root {
+        color-scheme: light dark;
+        --bg: #14161a;
+        --panel: #1e2126;
+        --border: #33383f;
+        --text: #e8eaed;
+        --muted: #9aa1ab;
+        --accent: #3b82f6;
+        --ok: #22c55e;
+        --warn: #eab308;
+        --err: #ef4444;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        min-height: 100vh;
+        background: var(--bg);
+        color: var(--text);
+        font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 1rem;
+    }
+    h1 { font-size: 1.1rem; font-weight: 600; margin: 0 0 0.25rem; }
+    p.hint { color: var(--muted); font-size: 0.9rem; margin: 0 0 1rem; max-width: 40rem; text-align: center; }
+    #status {
+        font-size: 0.85rem;
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        margin-bottom: 1rem;
+    }
+    #status[data-state="connecting"] { color: var(--warn); border-color: var(--warn); }
+    #status[data-state="open"] { color: var(--ok); border-color: var(--ok); }
+    #status[data-state="closed"] { color: var(--err); border-color: var(--err); }
+    #stage {
+        position: relative;
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 0.5rem;
+        max-width: 100%;
+    }
+    #frame {
+        display: block;
+        max-width: 100%;
+        height: auto;
+        cursor: crosshair;
+        border-radius: 0.25rem;
+    }
+    #placeholder {
+        color: var(--muted);
+        font-size: 0.9rem;
+        padding: 3rem 4rem;
+        text-align: center;
+    }
+    #keyboard-capture {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        opacity: 0;
+        border: 0;
+        padding: 0;
+        pointer-events: none;
+    }
+    #controls {
+        margin-top: 1rem;
+        display: flex;
+        gap: 0.75rem;
+        align-items: center;
+    }
+    button {
+        font: inherit;
+        font-weight: 600;
+        padding: 0.6rem 1.25rem;
+        border-radius: 0.4rem;
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: white;
+        cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    #message { color: var(--muted); font-size: 0.85rem; min-height: 1.2em; }
+</style>
+</head>
+<body>
+<h1>Resolver captcha</h1>
+<p class="hint">
+    Esta pantalla muestra en vivo el navegador que está gestionando la cita. Haz clic donde
+    quieras interactuar (por ejemplo, el campo del captcha) y escribe con tu teclado. Cuando
+    termines todo lo que haga falta en la página, pulsa "He terminado".
+</p>
+<div id="status" data-state="connecting">Conectando…</div>
+<div id="stage">
+    <div id="placeholder">Esperando la primera imagen…</div>
+    <canvas id="frame" style="display:none"></canvas>
+    <input id="keyboard-capture" type="text" autocomplete="off" autocapitalize="off" spellcheck="false" aria-hidden="true">
+</div>
+<div id="controls">
+    <button id="resolved-button" type="button" disabled>He terminado — Continuar</button>
+    <span id="message"></span>
+</div>
+
+<script>
+(function () {
+    "use strict";
+
+    var params = new URLSearchParams(location.search);
+    var token = params.get("token") || "";
+
+    var statusEl = document.getElementById("status");
+    var messageEl = document.getElementById("message");
+    var placeholderEl = document.getElementById("placeholder");
+    var canvas = document.getElementById("frame");
+    var ctx = canvas.getContext("2d");
+    var keyboardCapture = document.getElementById("keyboard-capture");
+    var resolvedButton = document.getElementById("resolved-button");
+
+    function setStatus(state, text) {
+        statusEl.dataset.state = state;
+        statusEl.textContent = text;
+    }
+
+    function setMessage(text) {
+        messageEl.textContent = text;
+    }
+
+    // El token nunca se inserta como HTML — solo se usa para construir la URL del WebSocket.
+    if (!/^[A-Za-z0-9_-]{8,128}$/.test(token)) {
+        setStatus("closed", "Enlace inválido");
+        setMessage("Este enlace no tiene un token con el formato esperado.");
+        return;
+    }
+
+    var wsProtocol = location.protocol === "https:" ? "wss:" : "ws:";
+    var wsUrl = wsProtocol + "//" + location.host + "/captcha-ws/" + encodeURIComponent(token);
+
+    var socket = new WebSocket(wsUrl);
+    var resolved = false;
+    var frameImage = new Image();
+    var pendingFrameData = null;
+
+    frameImage.onload = function () {
+        if (canvas.width !== frameImage.naturalWidth || canvas.height !== frameImage.naturalHeight) {
+            canvas.width = frameImage.naturalWidth;
+            canvas.height = frameImage.naturalHeight;
+        }
+        ctx.drawImage(frameImage, 0, 0);
+        if (placeholderEl.parentNode) {
+            placeholderEl.remove();
+            canvas.style.display = "block";
+        }
+        if (pendingFrameData !== null) {
+            var next = pendingFrameData;
+            pendingFrameData = null;
+            frameImage.src = "data:image/jpeg;base64," + next;
+        }
+    };
+
+    socket.addEventListener("open", function () {
+        setStatus("open", "Conectado");
+        setMessage("");
+        resolvedButton.disabled = false;
+    });
+
+    socket.addEventListener("close", function (event) {
+        setStatus("closed", "Sesión cerrada");
+        resolvedButton.disabled = true;
+        if (resolved) {
+            setMessage("Listo — el sistema continuará por su cuenta.");
+        } else if (event.code === 4400) {
+            setMessage("El enlace no es válido (token con formato incorrecto).");
+        } else if (event.code === 4404) {
+            setMessage("Esta sesión ya no existe (expiró o ya se resolvió en otra pestaña).");
+        } else {
+            setMessage("Conexión cerrada (código " + event.code + (event.reason ? ": " + event.reason : "") + ").");
+        }
+    });
+
+    socket.addEventListener("error", function () {
+        setStatus("closed", "Error de conexión");
+    });
+
+    socket.addEventListener("message", function (event) {
+        var payload;
+        try {
+            payload = JSON.parse(event.data);
+        } catch (err) {
+            return;
+        }
+        if (!payload || payload.type !== "screencast_frame" || typeof payload.data !== "string") return;
+
+        if (frameImage.complete === false) {
+            // Ya hay un frame decodificándose — nos quedamos con el más reciente, no encolamos todos.
+            pendingFrameData = payload.data;
+            return;
+        }
+        frameImage.src = "data:image/jpeg;base64," + payload.data;
+    });
+
+    function send(message) {
+        if (socket.readyState === WebSocket.OPEN) {
+            socket.send(JSON.stringify(message));
+        }
+    }
+
+    function mapCoordinates(clientX, clientY) {
+        var rect = canvas.getBoundingClientRect();
+        var scaleX = canvas.width / rect.width;
+        var scaleY = canvas.height / rect.height;
+        return {
+            x: Math.round((clientX - rect.left) * scaleX),
+            y: Math.round((clientY - rect.top) * scaleY),
+        };
+    }
+
+    var BUTTON_NAMES = ["left", "middle", "right"];
+
+    function sendMouse(kind, event) {
+        var point = mapCoordinates(event.clientX, event.clientY);
+        send({
+            type: "mouse",
+            kind: kind,
+            x: point.x,
+            y: point.y,
+            button: BUTTON_NAMES[event.button] || "left",
+            clickCount: 1,
+        });
+    }
+
+    canvas.addEventListener("mousedown", function (event) {
+        // preventDefault matters here: canvas isn't natively focusable, so without it the
+        // browser's own default mousedown handling blurs keyboardCapture right back out
+        // immediately after this listener calls .focus() on it.
+        event.preventDefault();
+        keyboardCapture.focus();
+        sendMouse("mousePressed", event);
+    });
+    canvas.addEventListener("mouseup", function (event) {
+        sendMouse("mouseReleased", event);
+    });
+    canvas.addEventListener("mousemove", function (event) {
+        sendMouse("mouseMoved", event);
+    });
+    canvas.addEventListener("contextmenu", function (event) {
+        event.preventDefault();
+    });
+
+    keyboardCapture.addEventListener("keydown", function (event) {
+        send({ type: "key", kind: "keyDown", key: event.key, code: event.code });
+    });
+    keyboardCapture.addEventListener("keyup", function (event) {
+        send({ type: "key", kind: "keyUp", key: event.key, code: event.code });
+    });
+    keyboardCapture.addEventListener("input", function (event) {
+        var text = typeof event.data === "string" ? event.data : "";
+        if (text.length > 0) {
+            for (var i = 0; i < text.length; i++) {
+                send({ type: "key", kind: "char", key: text[i], text: text[i] });
+            }
+        }
+        keyboardCapture.value = "";
+    });
+
+    resolvedButton.addEventListener("click", function () {
+        if (resolved) return;
+        resolved = true;
+        send({ type: "resolved" });
+        resolvedButton.disabled = true;
+        setMessage("Enviado — esperando que el sistema continúe…");
+    });
+})();
+</script>
+</body>
+</html>

@@ -32,10 +32,19 @@ branch/PR: `WorkerEventRouter::routeCaptchaRequired()` now reads the `sessionTok
 `CaptchaRequiredEvent` publishes, a new `CaptchaSessionUrlBuilderInterface`/
 `LaravelCaptchaSessionUrlBuilder` builds the real `{APP_URL}/captcha-ws/{sessionToken}` link, and a
 new `NotifyOnCaptchaInterventionRequiredListener` sends it to a human through the `WatchTask`'s
-configured channel. The manual captcha-solving walkthrough is still genuinely blocked even so, not
-just deferred — a human is now actually told the real URL, but the screencast UI it points at is
-still undesigned, and (per `../node-worker/CLAUDE.md`) node-worker's CDP relay, while it now has a
-real production caller, still hasn't had an actual captcha solved through it end-to-end. Check the
+configured channel. At the time, that link pointed at `{APP_URL}/captcha-ws/{sessionToken}` — the
+bare WebSocket endpoint nginx proxies to node-worker, which does nothing when opened directly in a
+browser. Phase 11 (also done, same week) closed that gap: a new static page,
+`application/public/captcha.html` (plain HTML/JS, no build step, no framework), is what
+`LaravelCaptchaSessionUrlBuilder` now links to instead — it connects to the relay itself, renders
+the live screencast on a `<canvas>`, and relays mouse/keyboard input plus a `"resolved"` signal
+back. Deliberately **not** a Laravel route/view: nginx already serves `application/public/` as its
+content root, so the page lives there purely as a deployment fact, with no Laravel code aware it
+exists — matches this app's own established stance that captcha-UI work is out of scope for the
+Laravel side itself. Verified against a throwaway Playwright-driven mock relay and against this
+stack's real 4400/4404 close-code paths; **not** against a real captcha, which would mean
+attempting a real reservation on the government site. That live walkthrough — a human actually
+solving a real captcha through this page, end-to-end — is the one thing still open; check the
 roadmap before assuming a later phase's piece exists.
 
 ## Architecture principles (apply to all new business logic)

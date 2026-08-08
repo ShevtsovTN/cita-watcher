@@ -29,20 +29,28 @@
  * still-live session with `CaptchaSessionRegistry` (bridging to `index.ts`'s WS relay), publishes
  * `CaptchaRequiredEvent{sessionToken}` immediately (before waiting, so a human learns about it
  * promptly), then awaits either `CaptchaSessionRegistry.notifyResolved()` firing or a timeout —
- * whichever comes first — before releasing the session. Deliberately publishes nothing further
- * after that: node-worker has no visibility into what a human actually did over the CDP relay
- * (solved it and continued manually, gave up, ran out of time), and this codebase consistently
- * avoids reporting a guess as an observation (same principle behind every other
- * `NavigationOutcome`→event mapping decision).
+ * whichever comes first — before releasing the session.
+ *
+ * Phase 8 addition: the CDP relay (`../captcha/input-relay.ts`) gives a connected human raw,
+ * unscoped `Input.dispatchMouseEvent`/`dispatchKeyEvent` control of the whole page, not just a
+ * captcha text field — so by the time `"resolved"` fires, the human has presumably already
+ * clicked through whatever was left of the 5-step wizard themselves (captcha → `acVerificarCita`
+ * → `acGrabarCita`) via the still-undesigned screencast UI. On `"resolved"`, this handler now
+ * inspects the resulting page (`classifyPostResolutionOutcome`) and publishes exactly one more
+ * `CheckFailedEvent` about it — never a guess at success, since no real `acGrabarCita` success
+ * screen has ever been observed live (see `site-navigator.ts`'s `PostResolutionOutcome` docblock).
+ * On `"timeout"` (our own, shorter than the site's real ~5-minute window), still publishes
+ * nothing further: a timeout on our side isn't an observation of the page, so classifying it would
+ * be exactly the kind of guess this codebase consistently avoids presenting as fact.
  */
 
 import type { AvailabilityCheckRunner, SessionManager } from "../automation";
-import { checkAvailability } from "../automation";
+import { checkAvailability, classifyPostResolutionOutcome } from "../automation";
 import type { CaptchaSessionRegistry } from "../captcha";
 import { logger as defaultLogger, type Logger } from "../logger";
 import { generateSessionToken, type SessionToken } from "../session-token";
 import type { WorkerCommand, WorkerEvent } from "../types";
-import { mapNavigationOutcomeToCheckFailedEvent } from "./outcome-to-event";
+import { mapNavigationOutcomeToCheckFailedEvent, mapPostResolutionOutcomeToCheckFailedEvent } from "./outcome-to-event";
 import type { EventPublisher } from "./redis-event-publisher";
 import type { WorkerCommandHandler } from "./redis-command-consumer";
 
@@ -145,6 +153,17 @@ export function createWorkerCommandHandler(deps: WorkerCommandHandlerDeps): Work
                         });
                     });
                     commandLogger.info("captcha session ended", { resolution });
+
+                    if (resolution === "resolved") {
+                        const postOutcome = await classifyPostResolutionOutcome(pendingCaptchaSession.page, request.province);
+                        const postEvent = mapPostResolutionOutcomeToCheckFailedEvent(
+                            postOutcome,
+                            command.watchTaskId,
+                            now().toISOString(),
+                        );
+                        await eventPublisher.publish(postEvent);
+                        commandLogger.info("published worker event", { type: postEvent.type, retryable: postEvent.retryable });
+                    }
                 } finally {
                     captchaRegistry.unregister(token);
                     await sessionManager.release(pendingCaptchaSession);

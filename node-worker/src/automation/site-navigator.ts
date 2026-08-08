@@ -102,6 +102,48 @@ export type NavigationOutcome =
     | PostSubmitUnconfirmed
     | CaptchaBlockedSlotsOffered;
 
+/**
+ * Единственное подтверждённое recon'ом (`../../../docs/PHASE9_DRY_RUN.md`, "Manual browser
+ * recon") поведение `acVerificarCita`/`acGrabarCita`: истечение жёсткого 5-минутного таймера сайта
+ * (запущенного на `acOfertarCita`) молча откатывает на страницу выбора trámite для провинции, без
+ * ошибки и без брони. Успешное бронирование ни разу не наблюдалось живьём — этот тип не
+ * "финальный коммит прошёл", а именно "признанное истечение окна".
+ */
+export interface ReservationWindowExpired {
+    readonly type: "reservation_window_expired";
+}
+
+/**
+ * Результат `classifyPostResolutionOutcome` — не вариант `NavigationOutcome`, потому что
+ * `runAvailabilityCheck` сам его никогда не возвращает: он имеет смысл только после паузы на
+ * captcha (см. `messaging/command-handler.ts`), когда человек уже кликнул сам через relay весь
+ * оставшийся визард (капча → `acVerificarCita` → `acGrabarCita`) и просигналил `"resolved"`. Кроме
+ * подтверждённого `ReservationWindowExpired`, никакой другой странице/селектору (чекбокс "Estoy
+ * conforme", кнопка сабмита, экран успеха `acGrabarCita`) не присвоено значение — они остаются
+ * неподтверждёнными, как и весь остальной `PostSubmitUnconfirmed`-класс случаев в этом файле.
+ */
+export type PostResolutionOutcome = WafRejected | ReservationWindowExpired | PostSubmitUnconfirmed;
+
+/**
+ * Вызывается из `command-handler.ts` после того, как человек прислал `"resolved"` через CDP-relay
+ * (см. `../captcha/input-relay.ts`) — то есть предположительно уже кликнул через весь оставшийся
+ * визард сам. Эта функция ничего не кликает, только классифицирует итоговое состояние страницы.
+ * Сравнение `page.url()` с `buildCitarUrl(route)` — это буквально тот же URL, на который
+ * `runAvailabilityCheck` изначально переходил в начале этого же запуска, а не новый угаданный
+ * селектор.
+ */
+export async function classifyPostResolutionOutcome(page: Page, province: string): Promise<PostResolutionOutcome> {
+    const waf = await detectWafRejection(page);
+    if (waf !== undefined) return waf;
+
+    const route = resolveProvinceRoute(province);
+    if (route !== undefined && page.url() === buildCitarUrl(route)) {
+        return { type: "reservation_window_expired" };
+    }
+
+    return { type: "post_submit_unconfirmed" };
+}
+
 export class UnknownProvinceError extends Error {
     public constructor(province: string) {
         super(`Unknown province "${province}": no confirmed ICP Plus route for it`);

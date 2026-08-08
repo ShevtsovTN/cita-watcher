@@ -117,6 +117,26 @@ see `../docs/APPLICATION_ROADMAP.md` Phase 10. The manual captcha-solving walkth
 **still** genuinely blocked even so: a human is now actually told the real `/captcha-ws/<token>`
 URL, but opening it does nothing yet, since the screencast UI is still undesigned.
 
+Phase 8 is done: `command-handler.ts` used to do nothing after a captcha session's `"resolved"`
+signal beyond releasing it — now it does one more thing. The CDP relay
+(`captcha/input-relay.ts`) turned out to give a connected human full, unscoped `Input.
+dispatchMouseEvent`/`dispatchKeyEvent` control of the whole page, not just a captcha field, so
+`"resolved"` means the human presumably already clicked through the rest of the 5-step wizard
+themselves (`acVerificarCita`/`acGrabarCita` included) via the screencast UI — node-worker doesn't
+need to automate those steps, only classify what state the page ended up in. New
+`site-navigator.ts` export `classifyPostResolutionOutcome(page, province)` detects the one
+behavior actually confirmed by recon (the site's 5-minute window expiring silently bounces back to
+the trámite-entry URL, no error, no reservation) as `ReservationWindowExpired`, reuses
+`detectWafRejection`, and falls through to the existing `PostSubmitUnconfirmed` for everything else
+— deliberately not guessing at the unconfirmed "Estoy conforme" checkbox, submit button, or any
+success screen for what would be a real, irreversible booking action. New
+`messaging/outcome-to-event.ts` export `mapPostResolutionOutcomeToCheckFailedEvent` maps all three
+cases to `retryable: true`; `CheckCompletedEvent` still isn't published anywhere, unchanged, since
+no real `acGrabarCita` success page has ever been observed. 207 tests pass (up from 199). Full
+write-up: `../docs/NODE_WORKER_ROADMAP.md` Phase 8. The manual captcha-solving walkthrough is
+**still** blocked exactly as before — this phase only changed what happens once a human *has*
+resolved one, not whether the screencast UI exists yet for them to do that through.
+
 ## Conventions
 
 The same dependency-inversion spirit from the Laravel app applies here even though it isn't

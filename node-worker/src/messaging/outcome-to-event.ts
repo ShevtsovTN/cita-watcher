@@ -27,7 +27,7 @@
  *    `CaptchaRequiredEvent` без токена, на который никто не сможет отреагировать.
  */
 
-import type { NavigationOutcome } from "../automation";
+import type { NavigationOutcome, PostResolutionOutcome } from "../automation";
 import type { CheckFailedEvent } from "../types";
 
 export function mapNavigationOutcomeToCheckFailedEvent(
@@ -81,6 +81,52 @@ export function mapNavigationOutcomeToCheckFailedEvent(
                         : `Found ${String(outcome.slots.length)} offered slot(s) (${outcome.slots
                               .map((slot) => `${slot.day} ${slot.time}`)
                               .join(", ")}), but a required captcha blocked completion.`,
+                retryable: true,
+                occurredAt,
+            };
+    }
+}
+
+/**
+ * Отображает `PostResolutionOutcome` (../automation/site-navigator.ts) — состояние страницы после
+ * того, как человек прислал `"resolved"` через CDP-relay на паузе captcha (см.
+ * `command-handler.ts`). Как и `mapNavigationOutcomeToCheckFailedEvent`, всё мапится на
+ * `CheckFailedEvent{retryable: true}`: ни `reservation_window_expired` (подтверждённый recon'ом
+ * сбой — истечение серверного окна, не постоянный отказ), ни `post_submit_unconfirmed` (неизвестно,
+ * что реально произошло) не дают оснований объявить бронь успешной — `CheckCompletedEvent`
+ * по-прежнему не публикуется нигде, так как ни разу не наблюдался живой экран успеха `acGrabarCita`.
+ */
+export function mapPostResolutionOutcomeToCheckFailedEvent(
+    outcome: PostResolutionOutcome,
+    watchTaskId: number,
+    occurredAt: string,
+): CheckFailedEvent {
+    switch (outcome.type) {
+        case "waf_rejected":
+            return {
+                type: "check_failed",
+                watchTaskId,
+                reason:
+                    outcome.supportId === null
+                        ? "Rejected by the site's WAF."
+                        : `Rejected by the site's WAF (support id: ${outcome.supportId}).`,
+                retryable: true,
+                occurredAt,
+            };
+        case "reservation_window_expired":
+            return {
+                type: "check_failed",
+                watchTaskId,
+                reason: "The site's 5-minute reservation window expired before the flow could be completed.",
+                retryable: true,
+                occurredAt,
+            };
+        case "post_submit_unconfirmed":
+            return {
+                type: "check_failed",
+                watchTaskId,
+                reason:
+                    "Post-resolution page could not be interpreted (reservation succeeded, still pending, or window expired is unconfirmed).",
                 retryable: true,
                 occurredAt,
             };

@@ -20,15 +20,17 @@ function fakeSessionManager(session: AutomationSession): SessionManager {
     };
 }
 
-function fakeSession(page: Page = {} as Page): AutomationSession {
+/** `on: vi.fn()` matters here: `checkAvailability` now always wires up `attachRemoteResponseLogging` for the real `commandLogger` this handler passes it (see `../automation/remote-response-logger.ts`), which calls `page.on(...)` before `runCheck` ever touches the page. */
+function fakeSession(page: Page = { on: vi.fn() } as unknown as Page): AutomationSession {
     return { id: "session-1", page, newCdpSession: vi.fn() };
 }
 
-/** Minimal `Page` fake covering only what `classifyPostResolutionOutcome` reads: `locator("body").innerText()` and `url()`. */
+/** Minimal `Page` fake covering what `classifyPostResolutionOutcome` reads (`locator("body").innerText()`, `url()`) plus `on()` for `attachRemoteResponseLogging` — this is the same page object `checkAvailability` wires logging onto. */
 function fakePostResolutionPage(url: string, bodyText = ""): Page {
     return {
         locator: vi.fn(() => ({ innerText: vi.fn(() => Promise.resolve(bodyText)) })),
         url: vi.fn(() => url),
+        on: vi.fn(),
     } as unknown as Page;
 }
 

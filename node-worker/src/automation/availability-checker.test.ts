@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type { Page } from "playwright";
 
+import type { Logger } from "../logger";
 import type { AutomationSession, SessionManager } from "./session-manager";
 import type { CheckAvailabilityRequest, NavigationOutcome } from "./site-navigator";
 import { checkAvailability } from "./availability-checker";
@@ -95,5 +96,45 @@ describe("checkAvailability", () => {
 
         expect(result).toEqual({ outcome, pendingCaptchaSession: session });
         expect(sessionManager.release).not.toHaveBeenCalled();
+    });
+
+    it("does not attach remote-response logging when no logger is given", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" }));
+        const attachLogging = vi.fn();
+
+        await checkAvailability(request, sessionManager, runCheck, undefined, attachLogging);
+
+        expect(attachLogging).not.toHaveBeenCalled();
+    });
+
+    it("attaches remote-response logging to the acquired session's page when a logger is given", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" }));
+        const attachLogging = vi.fn();
+        const logger = {} as Logger;
+
+        await checkAvailability(request, sessionManager, runCheck, logger, attachLogging);
+
+        expect(attachLogging).toHaveBeenCalledWith(session.page, logger);
+    });
+
+    it("attaches logging before runCheck is invoked", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const calls: string[] = [];
+        const runCheck = vi.fn(() => {
+            calls.push("runCheck");
+            return Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" });
+        });
+        const attachLogging = vi.fn(() => {
+            calls.push("attachLogging");
+        });
+
+        await checkAvailability(request, sessionManager, runCheck, {} as Logger, attachLogging);
+
+        expect(calls).toEqual(["attachLogging", "runCheck"]);
     });
 });

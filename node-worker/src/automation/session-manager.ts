@@ -37,7 +37,40 @@ export class SessionLimitExceededError extends Error {
 
 type BrowserLauncher = () => Promise<Browser>;
 
-const defaultLauncher: BrowserLauncher = () => chromium.launch({ headless: true });
+/**
+ * Confirmed live (2026-08-08, see ../../../docs/NODE_WORKER_ROADMAP.md Phase 9) against the real
+ * target site: plain `headless: true` — this launcher's setting before this change — never once got
+ * past the site's own bot defense (an F5/Shape-style JS challenge that reacts specifically to
+ * Playwright headless Chromium's `HeadlessChrome` User-Agent substring). `headless: false` under a
+ * virtual display (the Playwright base image already bundles Xvfb; the production `CMD` wraps the
+ * process in `xvfb-run`, see ../../../cita-watcher-docker/node-worker/Dockerfile), a desktop-Chrome
+ * User-Agent, `navigator.webdriver` patched to `undefined`, and `--disable-blink-features=
+ * AutomationControlled` got past it — not reliably every time (two of three live attempts the same
+ * day still hit a different, likely IP-reputation-related bot-defense failure mode after this one
+ * fronted them successfully once), but strictly better than headless, which never worked at all.
+ */
+const DEFAULT_USER_AGENT =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/129.0.0.0 Safari/537.36";
+
+const defaultLauncher: BrowserLauncher = () =>
+    chromium.launch({
+        headless: false,
+        args: ["--no-sandbox", "--disable-blink-features=AutomationControlled"],
+    });
+
+/**
+ * `addInitScript`'s callback runs in the browser page, not Node — `tsconfig.json`'s `lib` is
+ * `["ES2023"]` with no `"DOM"`, deliberately (this module otherwise runs entirely in Node), so
+ * `navigator` needs a minimal local ambient declaration rather than pulling in the full DOM lib
+ * just for this one property.
+ */
+declare const navigator: { webdriver?: boolean };
+
+async function patchAutomationFingerprint(context: BrowserContext): Promise<void> {
+    await context.addInitScript(() => {
+        Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    });
+}
 
 export class PlaywrightSessionManager implements SessionManager {
     /**
@@ -70,7 +103,8 @@ export class PlaywrightSessionManager implements SessionManager {
 
         try {
             const browser = await this.ensureBrowser();
-            const context = await browser.newContext();
+            const context = await browser.newContext({ userAgent: DEFAULT_USER_AGENT });
+            await patchAutomationFingerprint(context);
             const page = await context.newPage();
 
             this.contexts.set(id, context);

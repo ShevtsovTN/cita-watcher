@@ -856,6 +856,65 @@ shipped one real, permanent feature.
       Resolving this for real — whether that means waiting out whatever reputation window this is,
       trying from a different network/IP, or something else entirely — is unstarted, follow-up work.
 
+## Phase 10 — Ship Phase 9's diagnosis: anti-detection browser launch + real sede selection ⚠️ partially done — see notes
+
+Direct follow-up to Phase 9, same day: Phase 9 only diagnosed the bot-defense/`sede` findings via a
+throwaway script; this phase puts the confirmed fixes into the actual production code path.
+
+- [x] `automation/session-manager.ts`'s `defaultLauncher` now launches `chromium.launch({ headless:
+      false, args: ["--no-sandbox", "--disable-blink-features=AutomationControlled"] })` instead of
+      plain `headless: true`, and `acquire()` now creates every context with a desktop-Chrome
+      `userAgent` and a `navigator.webdriver`-patching `addInitScript` — the exact recipe Phase 9
+      confirmed live gets further than plain headless (never confirmed to work at all). New test
+      asserts the `User-Agent` never contains `HeadlessChrome` and that `addInitScript` is called.
+      `tsconfig.json`'s `lib` stays `["ES2023"]` (no DOM) — `navigator` inside the init-script
+      callback gets a minimal local `declare const navigator: { webdriver?: boolean }` instead of
+      pulling in the full DOM lib for one property.
+- [x] `../cita-watcher-docker/node-worker/Dockerfile`'s `CMD` and `docker-compose.yml`'s node-worker
+      `command:` override both now wrap the process in `xvfb-run -a` (already bundled in the
+      Playwright base image) — `headless: false` needs a `DISPLAY`, and unlike the throwaway
+      recon scripts (`xvfb-run -a node ...`, run via `docker compose exec` into an already-running
+      container), the real service is the container's own long-running entrypoint.
+- [x] **Found and fixed a real, live infra bug this surfaced**: with `xvfb-run` as the container's
+      own PID 1, the service hung forever on startup — confirmed live via `docker exec ... ps aux`:
+      Xvfb itself started fine (its own `/tmp/.X99-lock` existed), but `xvfb-run`'s wrapper script
+      never proceeded past its internal `wait` for Xvfb's ready signal (`SIGUSR1`), a known class of
+      PID-1 signal-handling gotcha in containers with no real init. Fixed by adding `init: true` to
+      the `node-worker` compose service (Docker Compose's built-in minimal `tini` init) — verified
+      live: `docker-init` now owns PID 1, `xvfb-run` → `npm run dev` → `tsx watch src/index.ts` all
+      come up, and the service reports `healthy` with its normal startup log line
+      (`started commands_list=... ws_relay_port=4001 health_port=4002`).
+- [x] `site-navigator.ts`: new optional `CheckAvailabilityRequest.sede` field (visible `<select
+      id="sede">` option text, same "caller supplies the exact real Spanish text" contract as
+      `tramiteLabel`) and a new `selectSede()` step, run before trámite selection — confirmed live in
+      Phase 9 that a specific trámite (recogida de TIE) only appears in the trámite `<select>` once
+      the right `sede` is chosen first, via the site's own `cargaTramites()` AJAX reload. Uses plain
+      `selectOption` (never `force: true` — see Phase 9's write-up for why that breaks the AJAX
+      call), throws a new `SedeNotFoundError` for an unmatched label, mirroring `TramiteNotFoundError`.
+      **Deliberately optional and backward-compatible**: omitting `sede` reproduces every prior
+      confirmed behavior exactly (site defaults to "Cualquier oficina"), so this doesn't risk any
+      trámite that was already working without office selection.
+- [x] 214 tests pass (up from 209 at the end of Phase 9); `tsc`/`eslint` both clean.
+- [ ] **Not done — the wire contract still doesn't carry `sede`.** `messaging/command-handler.ts`
+      builds `CheckAvailabilityRequest` from `command.procedure.province`/`.tramiteCode` only —
+      there's no `sede` on `../types/commands.ts`'s `Procedure`, and no matching field on the
+      Laravel-side `Procedure.php`/`WatchTask` schema/API either. A real `WatchTask` created through
+      the actual API still cannot specify an office, the same cross-service, both-sides-in-lockstep
+      change `ApplicantData`'s `documentType`/`birthYear`/`nationality` fields were (see Phase 3) —
+      not attempted here, since it also means a Laravel migration/API/encryption-column change this
+      phase didn't scope in.
+- [ ] **Not done — no new live attempt against the real site.** This phase shipped and unit-tested
+      the fixes Phase 9 diagnosed, and confirmed the real service starts up correctly with them, but
+      deliberately did not run another live booking attempt to confirm they resolve Phase 9's actual
+      blocker end-to-end — see Phase 9's closing note on the likely-degraded IP reputation from that
+      day's volume of automated requests; spending another live attempt to verify wasn't done without
+      a fresh decision to do so.
+- [ ] **Still open, unchanged**: the manual captcha-solving walkthrough (real human, real captcha,
+      through `captcha.html`) and real success-page detection (`CheckCompletedEvent` never
+      published) — neither is closer to done than at the end of Phase 8/9. Both need an actual live
+      run that reaches the captcha step, which this phase's code changes may or may not now allow;
+      unconfirmed either way.
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

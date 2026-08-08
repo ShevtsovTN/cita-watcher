@@ -11,6 +11,7 @@ function fakeContext(): BrowserContext {
         newPage: vi.fn(() => Promise.resolve(page)),
         close: vi.fn(() => Promise.resolve(undefined)),
         newCDPSession: vi.fn(() => Promise.resolve(cdpSession)),
+        addInitScript: vi.fn(() => Promise.resolve(undefined)),
     } as unknown as BrowserContext;
 }
 
@@ -104,6 +105,18 @@ describe("PlaywrightSessionManager", () => {
         await manager.release(session);
 
         await expect(manager.release(session)).resolves.toBeUndefined();
+    });
+
+    it("creates each context with a non-headless-Chromium User-Agent and patches navigator.webdriver", async () => {
+        const { browser, contexts } = fakeBrowser();
+        const manager = new PlaywrightSessionManager(3, () => Promise.resolve(browser));
+
+        await manager.acquire();
+
+        expect(browser.newContext).toHaveBeenCalledWith(
+            expect.objectContaining({ userAgent: expect.not.stringContaining("HeadlessChrome") as string }),
+        );
+        expect(contexts[0]?.addInitScript).toHaveBeenCalledTimes(1);
     });
 
     it("exposes a CDP session for the page", async () => {

@@ -16,8 +16,8 @@ COPY tsconfig.json ./
 COPY src ./src
 RUN npm run build
 
-# --- Headless-запуск не требует root: Chromium уже настроен образом Playwright
-#     под непривилегированного пользователя pwuser ---
+# --- Запуск от непривилегированного pwuser: тот же пользователь, под которым Playwright
+#     уже настроен в базовом образе ---
 USER pwuser
 
 # CDP screencast relay поднимает свой WS-сервер на этом порту (см. CDP_RELAY_PORT)
@@ -25,4 +25,11 @@ EXPOSE 4001
 # Health-check HTTP endpoint (см. HEALTH_PORT, docker-compose.yml's healthcheck:) — Phase 5
 EXPOSE 4002
 
-CMD ["node", "dist/index.js"]
+# `xvfb-run` (уже есть в базовом образе Playwright): automation/session-manager.ts запускает
+# Chromium с `headless: false`, а не headless — см. ../../docs/NODE_WORKER_ROADMAP.md Phase 9 —
+# плоский `headless: true` ни разу не прошёл собственную bot-defense целевого сайта живьём, а
+# `headless: false` под виртуальным дисплеем — прошёл. `xvfb-run -a` сам поднимает Xserver на
+# свободном :N и держит его на всё время жизни обёрнутого процесса — то же самое, чем это было
+# подтверждено вживую в dev-контейнере, просто не для разового скрипта, а для долгоживущего
+# `node dist/index.js`.
+CMD ["xvfb-run", "-a", "node", "dist/index.js"]

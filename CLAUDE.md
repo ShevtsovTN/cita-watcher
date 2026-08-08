@@ -119,8 +119,12 @@ but nobody has actually solved a real captcha through it end-to-end yet — and,
 outside this walkthrough), it's now confirmed why the automated side alone can't get there yet
 either: the target site's own bot defense reacts to Playwright headless Chromium specifically
 (**not**, as previously and wrongly recorded in `docs/PHASE9_DRY_RUN.md`, a network-level firewall —
-see that phase for the correction), and `node-worker/src/automation/session-manager.ts`'s real
-browser launcher still runs headless, unpatched. Check the relevant roadmap
+see that phase for the correction). `docs/NODE_WORKER_ROADMAP.md` Phase 10 (same day, direct
+follow-up) shipped the fix into `node-worker/src/automation/session-manager.ts`'s real browser
+launcher (headed under Xvfb, UA/`navigator.webdriver` overrides) and confirmed the real service
+starts up correctly with it (catching and fixing a real PID-1/Xvfb-signal startup hang along the
+way) — but deliberately did **not** spend another live attempt against the real site confirming this
+actually gets a real run past the point Phase 9's attempts stalled at. Check the relevant roadmap
 (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
 piece exists.
 

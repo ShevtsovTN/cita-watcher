@@ -116,7 +116,19 @@ services:
     build:
       context: ../node-worker
       dockerfile: ../cita-watcher-docker/node-worker/Dockerfile
-    command: ["npm", "run", "dev"]
+    # `xvfb-run` (see `command:` below) waits for Xvfb to signal readiness via SIGUSR1 before
+    # running the wrapped command — confirmed live (2026-08-08) that this hangs forever when
+    # `xvfb-run` itself is the container's PID 1: Xvfb starts fine (its own lock file appears), but
+    # PID 1 never receives/acts on the signal without a real init reaping/forwarding it. `init: true`
+    # makes Compose run a minimal init (tini) as PID 1 instead, which fixes exactly this class of
+    # PID-1 signal-handling gotcha — confirmed live this actually unblocks it.
+    init: true
+    # xvfb-run: automation/session-manager.ts launches Chromium with headless: false (see
+    # ../docs/NODE_WORKER_ROADMAP.md Phase 9 — plain headless never got past the target site's own
+    # bot defense in live testing, headed-under-a-virtual-display did), which needs a DISPLAY. This
+    # `command:` override replaces the Dockerfile's CMD, so it needs its own xvfb-run wrapping too —
+    # the Dockerfile's isn't inherited here.
+    command: ["xvfb-run", "-a", "npm", "run", "dev"]
     restart: unless-stopped
     environment:
       REDIS_HOST: redis

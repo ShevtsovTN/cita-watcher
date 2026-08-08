@@ -8,3 +8,4 @@ export * from "./country-codes";
 export * from "./document-id-validator";
 export * from "./site-navigator";
 export * from "./availability-checker";
+export * from "./remote-response-logger";

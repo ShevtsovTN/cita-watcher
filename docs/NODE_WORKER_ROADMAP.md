@@ -747,6 +747,115 @@ that in, per the trade-off discussed with the user before starting (see the `Ask
 decision: model only the confirmed failure mode, `post_submit_unconfirmed` for everything else,
 rather than guessing at selectors for an irreversible real-world booking action).
 
+## Phase 9 — Live booking attempt: bot-defense root-caused, remote-response logging shipped ⚠️ partially done — see notes
+
+Prompted by an actual attempt (2026-08-08) to drive the real booking flow for `POLICIA - RECOGIDA
+DE TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)` / Alicante / "CNP Benidorm TIE" end-to-end with a real
+developer's own real applicant data, using a throwaway, uncommitted script (`node-worker/tmp-live-
+book.ts`, copied into the running dev container and deleted after each run — never part of the
+source tree) that reused real project code (`province-routes.ts`, `document-id-validator.ts`, and
+this phase's own `remote-response-logger.ts`) rather than reinventing it, but added office (`sede`)
+selection and post-captcha steps `site-navigator.ts` doesn't model yet. This did **not** land a real
+booking — see "Still open" below — but it corrected a wrong conclusion on record since Phase 6, and
+shipped one real, permanent feature.
+
+- [x] **Corrects a wrong claim on record since Phase 6**: `../docs/PHASE9_DRY_RUN.md`'s "Manual
+      browser recon" section attributed automated recon being blocked to "a FortiGate Intrusion
+      Prevention block at the local network level (not the site's own WAF)". Live testing today
+      disproves that: `curl` from inside the very same `node-worker` container, on the very same
+      network, reaches the real origin cleanly (legitimate DigiCert-issued cert for
+      `icp.administracionelectronica.gob.es`, not a MITM'd one) and gets back the site's *own*
+      bot-management layer — an F5/Shape-style JS challenge (cookie prefix `TSPD`, script path
+      `/TSPD/...`) for a plain UA, or its "Request Rejected" support-ID page for a bot-flagged one.
+      Only Playwright's own headless Chromium got the literal "FortiGate Intrusion Prevention
+      Violation" page, and only when its User-Agent string contained `HeadlessChrome` — i.e. this was
+      the *target site's* bot defense reacting to a headless-browser fingerprint, branded however
+      that vendor brands its block page, not a firewall on this project's own network. See the
+      correction note added directly to `../docs/PHASE9_DRY_RUN.md` at the original claim.
+- [x] **Confirmed live, once**: launching Chromium `headless: false` under `xvfb-run` (Xvfb + the
+      `xvfb-run` wrapper are already present in the node-worker dev image), with a plain desktop
+      Chrome `User-Agent` override and `navigator.webdriver` patched to `undefined` via
+      `page.addInitScript`, gets past the bot defense and reaches the real page
+      ("Proceso automático para la solicitud de cita previa") with real `<select>` content. Plain
+      `headless: true` (with or without the same UA/webdriver overrides) never did, across every
+      attempt. **This is a real, still-open gap in production code, not just a recon inconvenience**:
+      `automation/session-manager.ts`'s `defaultLauncher` is `chromium.launch({ headless: true })`
+      with none of this — as written today, a real `WorkerCommand` processed by the real running
+      service would almost certainly hit the same block on the real site. Fixing that (headed +
+      Xvfb + fingerprint overrides in `session-manager.ts` itself, plus whatever container/compose
+      changes that implies — a permanent Xvfb dependency, display-less rendering resource cost,
+      etc.) is real follow-up work, **not done as part of this phase** — this phase only diagnosed
+      and confirmed the shape of the problem via a throwaway script, deliberately not folded into
+      production code without a separate decision on that trade-off.
+- [x] **Confirmed live**: the `sede` (office) `<select id="sede" name="sede" onchange="cargaTramites()">`
+      is a real, visible native `<select>` (contrary to an initial guess that its
+      `data-live-search="true"` attribute meant a hidden custom widget) — but selecting it via
+      Playwright's `selectOption(..., { force: true })` breaks the page's own `cargaTramites()` AJAX
+      reload of the trámite `<select>`s: the `force: true` path skips Playwright's normal
+      actionability/event dispatch, and the site's own bot defense silently rejects that AJAX call
+      (returns its JS-challenge document instead of a trámite list), leaving the trámite `<select>`
+      empty. Plain `selectOption({ value: ... })` (no `force`, and by `value` rather than `label` —
+      the real option text contains a `` ` `` character that didn't reliably string-match) works and
+      the AJAX call succeeds for real. Relevant if `session-manager.ts` or `site-navigator.ts` ever
+      grows real `sede` selection (today `runAvailabilityCheck` never touches `sede` at all, so every
+      real check runs against "Cualquier oficina").
+- [x] **Corrects/extends Phase 6's "Alicante only offers policía trámites" claim**: live today,
+      Alicante (`icpco`, `p=3`) actually has four real `<select>`s — `sede` (14 real offices, e.g.
+      "CNP Alicante TIE", "CNP Benidorm TIE"), `tramiteGrupo[0]` (14 extranjería trámites, not
+      previously recorded at all), `tramiteGrupo[1]` (12 policía trámites — the 3 Phase 6 recorded
+      were an undercount from a human's live-browser recon session, not a wrong reading, just an
+      incomplete one), and an always-empty-at-this-point `subtramite`. Selecting a specific `sede`
+      (e.g. "CNP Benidorm TIE") filters `tramiteGrupo[1]` down to 13 options via the same
+      `cargaTramites()` AJAX call above — `POLICIA - RECOGIDA DE TARJETA DE IDENTIDAD DE EXTRANJERO
+      (TIE)` is confirmed present in that filtered list for "CNP Benidorm TIE" specifically.
+- [x] **New, real, permanent feature**: `automation/remote-response-logger.ts`'s
+      `attachRemoteResponseLogging(page, logger, options?)` — grew directly out of needing to tell a
+      broken bot-defense JS challenge apart from a WAF block, a Cl@ve redirect, or a genuinely slow
+      page, which a bare `NavigationOutcome` or a thrown error can't distinguish on its own. Attaches
+      `response`/`pageerror`/`console` listeners to a `Page`: every HTTP response from the target
+      site's own hostname (`icp.administracionelectronica.gob.es` by default, overridable via
+      `options.hostnames`) logs as `remote response <status>` (`info` under 400, `error` at/above),
+      filtered by hostname so CDN assets/Google Analytics/Dynatrace RUM beacons the real page loads
+      don't drown it out; every uncaught page-JS error logs as `remote page uncaught JS error`; every
+      browser-console `error`/`warning` (not `log`/`info`) logs as `remote page console <type>`.
+      `availability-checker.ts`'s `checkAvailability` gained an optional 4th `logger` param (and a
+      5th, injectable `attachLogging` function for tests) — attachment is opt-in on `logger` being
+      passed, deliberately not unconditional, since existing tests exercise `checkAvailability`
+      against a bare `{} as Page}` fake with no `.on()`. `messaging/command-handler.ts` now passes
+      its own `commandLogger` (already bound to `command_id`/`watch_task_id` via
+      `logger.withContext()`) through, so **every real check a running node-worker service performs
+      now logs the target site's actual HTTP responses and JS/console errors, correlated by the same
+      `command_id`/`watch_task_id` as every other node-worker log line** — visible the same way as
+      any other node-worker log: `docker compose logs -f node-worker` against the real running
+      service (or, for a container not run under compose, wherever that process's stdout/stderr
+      lands). Not a new log file, not a new destination — same `Logger`/`ConsoleLogger` singleton
+      (`../../node-worker/src/logger.ts`) every other node-worker log line already goes through.
+      7 new tests for the logger itself (hand-built `Page`/`ConsoleMessage`/`Response` fakes, same
+      idiom as the rest of `automation/`), 3 new tests for the `checkAvailability` wiring; two
+      existing `command-handler.test.ts` fakes (`fakeSession`'s default page, `fakePostResolutionPage`)
+      needed a no-op `on: vi.fn()` added, since they now flow through real attachment. 209 tests pass
+      (up from 207); `tsc`/`eslint` both clean.
+- [ ] **Still open — the live booking walkthrough remains blocked, for a different, now-diagnosed
+      reason.** Three live attempts today against the real site, using the confirmed headed+Xvfb+UA/
+      webdriver-override recipe above: the very first (before the `sede` `force`-vs-plain fix above
+      was known) failed at trámite lookup because of the `force: true` AJAX-breaking bug. The next
+      two — after that fix, and after `remote-response-logger.ts` existed to actually show what was
+      happening — both failed *earlier*, before `sede` selection: the page's own bot-defense JS
+      challenge returned HTTP 200 but threw an uncaught `__name is not defined` and never completed
+      its own redirect to the real page (`remote page uncaught JS error message=__name is not
+      defined`, `select#sede` never appearing). This is a **new** failure mode, distinct from both
+      the original wrong "network firewall" claim and the headless-fingerprint block the first
+      finding above diagnoses — it reproduced identically twice in a row after the one earlier
+      success today, consistent with (not proven to be) the same source IP's reputation with the
+      site's bot defense having been degraded by the volume of automated requests this same debugging
+      session generated, including several with `force: true`/headless fingerprints likely to read as
+      bot-like. **No real applicant data (N.I.E./name/phone/email) was ever actually submitted to the
+      site in any of the three attempts** — all three failed at or before trámite/office selection,
+      never reaching the applicant form (`acEntrada`). The throwaway script and the one-off applicant-
+      data file it read from were deleted after each run; nothing from this stayed in the repo.
+      Resolving this for real — whether that means waiting out whatever reputation window this is,
+      trying from a different network/IP, or something else entirely — is unstarted, follow-up work.
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

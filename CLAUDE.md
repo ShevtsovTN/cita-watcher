@@ -114,7 +114,13 @@ screencast on a canvas, and relays mouse/keyboard input plus a `"resolved"` sign
 (Playwright-driven, see that phase's write-up) and against the real `docker-compose` stack's 4400/
 4404 close-code paths — **not** against a real captcha, which would mean attempting a real
 reservation. That live walkthrough is the one thing still open: the page a human needs now exists,
-but nobody has actually solved a real captcha through it end-to-end yet. Check the relevant roadmap
+but nobody has actually solved a real captcha through it end-to-end yet — and, per
+`docs/NODE_WORKER_ROADMAP.md` Phase 9 (2026-08-08, real live testing against the actual site,
+outside this walkthrough), it's now confirmed why the automated side alone can't get there yet
+either: the target site's own bot defense reacts to Playwright headless Chromium specifically
+(**not**, as previously and wrongly recorded in `docs/PHASE9_DRY_RUN.md`, a network-level firewall —
+see that phase for the correction), and `node-worker/src/automation/session-manager.ts`'s real
+browser launcher still runs headless, unpatched. Check the relevant roadmap
 (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
 piece exists.
 

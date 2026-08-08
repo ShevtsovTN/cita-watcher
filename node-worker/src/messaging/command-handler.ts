@@ -122,8 +122,8 @@ export function createWorkerCommandHandler(deps: WorkerCommandHandlerDeps): Work
         try {
             const { outcome, pendingCaptchaSession } =
                 runCheck === undefined
-                    ? await checkAvailability(request, sessionManager)
-                    : await checkAvailability(request, sessionManager, runCheck);
+                    ? await checkAvailability(request, sessionManager, undefined, commandLogger)
+                    : await checkAvailability(request, sessionManager, runCheck, commandLogger);
 
             if (outcome.type === "captcha_blocked_slots_offered" && pendingCaptchaSession !== undefined) {
                 const token = generateToken();

@@ -142,6 +142,28 @@ never actually happened end-to-end (the page was verified against a throwaway mo
 against this stack's real 4400/4404 close-code paths, deliberately not against the real site, which
 would mean attempting a real reservation).
 
+Phase 9 (`../docs/NODE_WORKER_ROADMAP.md`, 2026-08-08) is partially done — real, live testing
+against the actual site (via a throwaway, never-committed script, not through the real Redis-driven
+service) corrected a wrong claim on record since Phase 6: automated recon being blocked was never a
+network-level firewall (see the correction note added to `../docs/PHASE9_DRY_RUN.md` at the original
+claim) — it's the target site's own bot defense reacting to Playwright headless Chromium's
+`HeadlessChrome` fingerprint specifically. Launching Chromium `headless: false` under Xvfb with a
+plain-Chrome `User-Agent` and `navigator.webdriver` patched to `undefined` got past it once; plain
+`headless: true` never did. **`automation/session-manager.ts`'s real `defaultLauncher` still launches
+`headless: true` with none of this** — confirmed still open, not fixed by this phase, so a real
+`WorkerCommand` processed by the actual running service today would likely hit the same block. What
+this phase did ship for real: `automation/remote-response-logger.ts`'s
+`attachRemoteResponseLogging`, wired into `checkAvailability`/`command-handler.ts` — every real check
+now logs the target site's actual HTTP responses plus page/console errors, correlated by
+`command_id`/`watch_task_id` like every other node-worker log line, via the same `Logger` singleton
+everything else already uses (`docker compose logs -f node-worker` against the real service — no new
+log file or destination). Three live booking attempts using a real developer's own real applicant
+data (never committed, never reaching the applicant form in any of the three — see Phase 9's write-up)
+still didn't land a real booking: after fixing an unrelated `sede`-selection bug the same session
+found, two more attempts hit a *different* new failure — the site's bot-defense JS challenge
+throwing `__name is not defined` and never completing, before `sede`/trámite selection is even
+reached. Not resolved; carried forward as open follow-up work.
+
 ## Conventions
 
 The same dependency-inversion spirit from the Laravel app applies here even though it isn't

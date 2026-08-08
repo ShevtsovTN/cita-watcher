@@ -223,6 +223,17 @@ to the target failed identically, with a MITM'd/untrusted TLS cert, and even unr
 wouldn't resolve without going through the same proxy). Nothing about that is specific to this
 project; it's a constraint of the network this dev environment happened to run on.
 
+> **Correction (2026-08-08, `../docs/NODE_WORKER_ROADMAP.md` Phase 9): the paragraph above is
+> wrong.** There is no network-level firewall. Live testing found the earlier `curl` failure was a
+> local CA-bundle gap (`curl`'s trust store didn't have the issuing intermediate, not that the cert
+> was forged) — `curl` with `-k` or a Chrome-like `User-Agent` reaches the real origin cleanly, with
+> a legitimate DigiCert-issued cert for the real hostname. The "FortiGate Intrusion Prevention
+> Violation" page was the **target site's own bot defense** (an F5/Shape-style JS challenge,
+> cookie prefix `TSPD`) reacting specifically to Playwright headless Chromium's `HeadlessChrome`
+> User-Agent — a plain UA (even from the same container, same network) gets the site's normal
+> challenge or its "Request Rejected" page instead, never the FortiGate-branded one. See Phase 9's
+> write-up for how this was confirmed and what got past it.
+
 Instead, a human walked the live site directly in a real browser (outside that network's
 restrictions) and reported back what happened at each step, in words, rather than automating
 anything. This is **not** a node-worker-verified result — no node-worker code ran during this

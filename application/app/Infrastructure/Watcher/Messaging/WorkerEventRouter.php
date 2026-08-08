@@ -61,11 +61,15 @@ final readonly class WorkerEventRouter
     }
 
     /**
-     * @param array{watchTaskId: int, occurredAt: string} $data
+     * @param array{watchTaskId: int, sessionToken: string, occurredAt: string} $data
      */
     private function routeCaptchaRequired(array $data): void
     {
-        $this->handleCaptchaRequired->execute($data['watchTaskId'], new DateTimeImmutable($data['occurredAt']));
+        $this->handleCaptchaRequired->execute(
+            $data['watchTaskId'],
+            $data['sessionToken'],
+            new DateTimeImmutable($data['occurredAt']),
+        );
     }
 
     /**

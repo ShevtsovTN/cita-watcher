@@ -10,6 +10,7 @@ final readonly class CaptchaInterventionRequiredEvent
 {
     public function __construct(
         public int $watchTaskId,
+        public string $sessionToken,
         public DateTimeImmutable $occurredAt,
     ) {}
 }

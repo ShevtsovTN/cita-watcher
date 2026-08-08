@@ -39,12 +39,14 @@ final class HandleCaptchaRequiredUseCaseTest extends TestCase
         $dispatcher->shouldReceive('dispatch')
             ->once()
             ->with(Mockery::on(function (CaptchaInterventionRequiredEvent $event) use ($occurredAt): bool {
-                return 42 === $event->watchTaskId && $occurredAt === $event->occurredAt;
+                return 42 === $event->watchTaskId
+                    && 'abc123' === $event->sessionToken
+                    && $occurredAt === $event->occurredAt;
             }));
 
         $useCase = new HandleCaptchaRequiredUseCase($repository, $dispatcher);
 
-        $useCase->execute(42, $occurredAt);
+        $useCase->execute(42, 'abc123', $occurredAt);
 
         $this->assertSame(WatchTaskStatusEnum::RUNNING, $watchTask->status());
     }
@@ -61,7 +63,7 @@ final class HandleCaptchaRequiredUseCaseTest extends TestCase
 
         $this->expectException(WatchTaskNotFoundException::class);
 
-        $useCase->execute(99, new DateTimeImmutable());
+        $useCase->execute(99, 'abc123', new DateTimeImmutable());
     }
 
     private function makeWatchTask(): WatchTask

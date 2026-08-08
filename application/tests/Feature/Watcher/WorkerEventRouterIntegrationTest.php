@@ -90,11 +90,12 @@ final class WorkerEventRouterIntegrationTest extends TestCase
         $router->route(json_encode([
             'type' => 'captcha_required',
             'watchTaskId' => $watchTask->id(),
+            'sessionToken' => 'abc123',
             'occurredAt' => '2026-08-05T09:00:00+00:00',
         ], JSON_THROW_ON_ERROR));
 
         $this->assertSame(WatchTaskStatusEnum::RUNNING, $repository->find($watchTask->id())->status());
-        Event::assertDispatched(CaptchaInterventionRequiredEvent::class, fn(CaptchaInterventionRequiredEvent $event): bool => $event->watchTaskId === $watchTask->id());
+        Event::assertDispatched(CaptchaInterventionRequiredEvent::class, fn(CaptchaInterventionRequiredEvent $event): bool => $event->watchTaskId === $watchTask->id() && 'abc123' === $event->sessionToken);
     }
 
     public function test_check_failed_fails_the_task_and_dispatches_check_failed(): void

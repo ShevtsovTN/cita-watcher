@@ -14,9 +14,10 @@ final class CaptchaInterventionRequiredEventTest extends TestCase
     {
         $occurredAt = new DateTimeImmutable('2026-08-10 09:00:00');
 
-        $event = new CaptchaInterventionRequiredEvent(watchTaskId: 42, occurredAt: $occurredAt);
+        $event = new CaptchaInterventionRequiredEvent(watchTaskId: 42, sessionToken: 'abc123', occurredAt: $occurredAt);
 
         $this->assertSame(42, $event->watchTaskId);
+        $this->assertSame('abc123', $event->sessionToken);
         $this->assertSame($occurredAt, $event->occurredAt);
     }
 }

@@ -648,6 +648,34 @@ real `sede` actually reaches the trámite it's meant to unlock — this phase is
 only, verified by unit/feature tests against the in-memory test DB, not a live run. The manual
 captcha-solving walkthrough (Phase 9/11) remains exactly as open as before, unrelated to this change.
 
+## Phase 13 — Dev-DB drift found during a live retry: the `sede` migration was edited after this DB had already run it ⚠️ partially done — see notes
+
+Found while retrying the live booking attempt with `sede` now wired end-to-end (see
+`../docs/NODE_WORKER_ROADMAP.md` Phase 12 for the full session). Not a code bug — Phase 12's
+own `2026_08_01_120000_create_watch_tasks_table.php` edit is correct for any fresh install — but a
+real gap between that migration file and this specific long-running dev environment's actual schema.
+
+- [x] **Confirmed live**: `php artisan migrate:status` showed `create_watch_tasks_table` as already
+      `Ran` (batch 1), from before Phase 12's edit added the `sede` column to that same migration
+      file. `watch_tasks` on this dev DB had no `sede` column at all, despite the model/repository/
+      request validation all already expecting one — and, unlike Phase 11's assumption, this table
+      already held a real row (`id=3`, real encrypted applicant data from a prior session)
+      `migrate:fresh` would have destroyed.
+- [x] **Fixed without a new migration file and without touching existing rows**: a one-off
+      `Schema::table('watch_tasks', fn ($t) => $t->string('sede')->nullable()->after('tramite_code'))`
+      run directly against the live dev DB via `artisan tinker`. Deliberately not a new
+      `add_sede_to_watch_tasks_table` migration — the create-table migration already declares `sede`
+      correctly for a fresh install/CI/the test suite's in-memory sqlite, so a second migration adding
+      the same column would collide with it on any environment that migrates from scratch. This fix is
+      specific to this one already-migrated dev database, the same category as `PHASE9_DRY_RUN.md`'s
+      `QUEUE_CONNECTION`/`event-consumer`-command findings — an environment-drift bug, not a source
+      change.
+- [ ] **Not done — no general fix for "a migration got edited after it already ran somewhere."** This
+      was caught by accident (the live retry happened to touch the affected column) rather than by any
+      process that would catch it systematically. Worth remembering for future migration edits on an
+      already-migrated environment: check `migrate:status` before assuming an in-place migration edit
+      reached every environment that matters.
+
 ## Explicit non-goals for this roadmap
 
 - `node-worker` internals — tracked in `../docs/NODE_WORKER_ROADMAP.md`, only consumed here as an

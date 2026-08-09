@@ -949,6 +949,131 @@ both-sides-in-lockstep change, same shape as `ApplicantData`'s `documentType`/`b
       recipe or re-attempt Phase 9/10's diagnosed bot-defense blocker. A `WatchTask` created with a
       real `sede` still hasn't been proven, live, to actually reach the trámite this unlocks.
 
+## Phase 12 — Live retry with real `sede`: root-caused why it still failed, found the label is short by an address ⚠️ partially done — see notes
+
+Direct follow-up, same day as Phase 11 shipped: an actual live retry of the recogida-de-TIE booking
+attempt (`watch_task_id=3`, the same real developer's real applicant data from Phase 9, this time
+using the real HTTP API + real Redis-driven service end-to-end, not a throwaway script) against
+`Alicante` / `POLICIA - RECOGIDA DE TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)` / `sede: "CNP Benidorm
+TIE"`.
+
+- [x] **Found and fixed a real dev-environment bug, application-side**: this dev Postgres DB had
+      already run `2026_08_01_120000_create_watch_tasks_table.php` *before* Phase 11 edited it to add
+      `sede` — contradicting that phase's own assumption ("the table still holds no real data").
+      `watch_tasks` already held a real row (`id=3`) with real encrypted applicant data. Fixed with a
+      one-off `Schema::table('watch_tasks', ...)` `ALTER` run directly against the live dev DB (not a
+      new migration file — the create-table migration already declares `sede` correctly for any
+      fresh install/CI run; a second migration adding the same column would break those). See
+      `../docs/APPLICATION_ROADMAP.md` Phase 13 for the Laravel-side note on this.
+- [x] **Confirmed live, and it's a real bug, not reputation noise**: the `sede` value used
+      everywhere on record since Phase 9/10 (`"CNP Benidorm TIE"`) is not the office `<select>`'s
+      real option text. The real text includes the branch address:
+      `"CNP Benidorm TIE, Callosa D\`Ensarria, 2, Benidorm"` — confirmed by dumping all 15 real
+      `select#sede` options live. `selectSede()`'s exact-match `optionLabels.includes(sede)` was
+      always going to fail against the short form. Phase 9/10's own recorded examples
+      (`"CNP Alicante TIE"`, `"CNP Benidorm TIE"`) were themselves incomplete transcriptions from
+      that day's live recon, not a copy error introduced later. `watch_task_id=3`'s `sede` has been
+      corrected to the full string as an immediate, real-data fix (not a code change — this is a
+      per-`WatchTask` data-quality issue, not something `site-navigator.ts` should special-case).
+- [x] **Confirmed live**: `select#sede`'s options are populated asynchronously, after a client-side
+      reload the bot-defense challenge triggers once it resolves (`page.on("framenavigated")` fired a
+      second time for the *same* URL, a few seconds after the initial `domcontentloaded`) — the first
+      response body's `#sede` has **zero** `<option>`s. `runAvailabilityCheck` does not wait for this;
+      it navigates with `waitUntil: "domcontentloaded"` and immediately calls `selectSede`/
+      `selectTramite`. This did not visibly matter for `selectSede` in this session's traces (Playwright's
+      own `selectOption` actionability retry loop stays parked on the locator "waiting for options" for
+      up to its 30s timeout, which is longer than the observed ~2s challenge-reload window), but it's
+      a real, unhandled race, not just a theoretical one — worth a real fix (waiting for a non-empty
+      `select#sede option` count, not just DOM presence of the `<select>` tag) rather than continuing
+      to rely on timeout-retry luck.
+- [x] **Fixed, same-day direct follow-up, test-first**: `site-navigator.ts` no longer trusts a single
+      `allTextContents()` read. A new `pollUntil()` helper (bounded by `OPTIONS_POLL_MAX_ATTEMPTS`
+      attempts × `OPTIONS_POLL_INTERVAL_MS`, ~10s total — attempt-count-bounded rather than
+      wall-clock-bounded, deliberately, so tests using a no-op `waitForTimeout` fake run every attempt
+      with no real delay instead of racing `Date.now()`) wraps both `selectSede`'s existence check and
+      `selectTramite`'s search loop, retrying until a match appears or the budget runs out. Two new
+      tests reproduce the exact race confirmed live (a locator whose `allTextContents()` resolves to
+      `[]` on its first call(s), then the real populated list) and assert the eventual selection
+      succeeds; all pre-existing `SedeNotFoundError`/`TramiteNotFoundError` tests still pass unchanged
+      (a genuinely-absent label now polls the full budget before throwing, instead of failing on the
+      first read, but still throws the same error). 220 tests pass (up from 218); `tsc`/`eslint` clean.
+      `node-worker` was restarted to pick this up (the running `tsx watch` process didn't visibly
+      hot-reload off the bind-mounted source change), which also discarded the long-lived,
+      today's-retries-worth-of-history browser process the previous finding flagged as a possible
+      reputation factor — a side benefit, not the fix itself.
+- [x] **Confirmed, directly comparing a fresh throwaway browser vs. the long-lived production
+      `PlaywrightSessionManager` browser**: three same-request live attempts through the real
+      Redis-driven service, all with the corrected wire contract, returned three *different* error
+      shapes (`TramiteNotFoundError`, then again `TramiteNotFoundError`, mechanically inconsistent
+      with the confirmed exact-label mismatch, which should deterministically throw
+      `SedeNotFoundError`), while an isolated throwaway script — same launch recipe, same request
+      shape, brand-new browser process each run — deterministically threw the *expected*
+      `SedeNotFoundError`. This is new, direct evidence for Phase 9's "IP-reputation-related" theory:
+      the one variable that differs between the two is the browser process's/IP's accumulated request
+      history against the site today, not the code path. Not conclusively isolated (network vs.
+      browser-process reputation vs. something else); flagged, not resolved.
+- [x] **Separately, the actual goal of this session's `watch_task_id=3` (a real appointment for this
+      trámite/office) was reached the same day — but manually, by the developer navigating the real
+      site directly in a browser, not through node-worker.** This is the project's first-ever
+      confirmed real "cita confirmada" success page. Structure observed (own applicant/appointment
+      data redacted below, only field labels and layout are real):
+      ```
+      CITA PREVIA EXTRANJERÍA
+      <trámite label>
+      CITA CONFIRMADA
+      Nº de Justificante de cita: <8-char alphanumeric>
+      Titular <redacted> - <redacted>
+      Teléfono <redacted>
+      Correo electrónico <redacted>
+      DATOS DE LA CITA
+      Dirección <sede's full address>
+      Día de la cita <DD/MM/YYYY>
+      Hora cita <HH:MM>
+      Mesa <redacted>
+      OTROS DATOS
+      Fecha de reserva de la cita: <DD/MM/YYYY>
+      NOTA: [document checklist reminder text]
+      Tu cita ha sido confirmada. Deberás aportar este justificante el día de la cita.
+      IMPORTANTE: [justificante-number custody warning]
+      [cancellation instructions, referencing an "Anular Cita" flow gated behind re-entering identity]
+      ```
+      Real, valuable signal for whenever `CheckCompletedEvent`/real success detection
+      (`classifyPostResolutionOutcome`'s still-unhandled "anything else" fallthrough, see Phase 8)
+      gets built: "CITA CONFIRMADA" plus a "Nº de Justificante de cita" label look like a reliable,
+      distinctive detection target — much more specific than guessing at a generic "success" page
+      shape. **Not itself evidence that node-worker's own flow (`acVerificarCita`/`acGrabarCita`,
+      still unmodeled per Phase 8's note) would produce the same page** — this was a human clicking
+      through the real wizard by hand, not the CDP-relayed screencast flow `captcha.html` drives.
+- [x] **Verified live, after the fix + restart, that the fix is doing something real**: the very next
+      live attempt after restarting `node-worker` with the `pollUntil` fix in place produced a
+      *different* error than every prior attempt today — `locator.allTextContents: Execution context
+      was destroyed, most likely because of a navigation`, thrown from inside the poll loop itself
+      (the mid-poll-navigation race the fix's own docblock anticipated, not yet handled at that
+      point). Fixed the same way, same-day, same test-first process: `pollUntil` now treats a
+      rejected `check()` as "not yet" (`.catch(() => false)`) instead of letting it abort the whole
+      poll. One new test (a `check` that rejects with that exact error message on its first call, then
+      resolves normally) confirms the poll survives it and still finds the match. 221 tests pass (up
+      from 220); `tsc`/`eslint` clean. `node-worker` restarted again to pick this up.
+- [ ] **Still open — genuinely blocked now, past the code-level bugs.** The next live attempt after
+      *that* restart failed differently again, and worse: `page.goto: net::ERR_CERT_AUTHORITY_INVALID`
+      — Chromium itself rejecting the TLS certificate, before any page content loads at all. Three
+      distinct, escalating failure shapes across this one session's handful of live attempts
+      (`TramiteNotFoundError` → mid-poll navigation error → a TLS handshake rejection) is not
+      consistent with "the code has one remaining bug" — it reads as this environment's reputation
+      with the site's bot defense degrading progressively *as a direct result of this session's own
+      attempts*, now bad enough to be rejected at the TLS layer rather than served a JS challenge at
+      all. Deliberately stopped here rather than attempting again immediately: further live attempts
+      right now look more likely to worsen this than resolve it. `watch_task_id=3` was paused (not
+      resumed) after each verification attempt in this phase, specifically to avoid the scheduler's
+      own `everyFiveMinutes()` adding to this without a human deciding to. Real next step, whenever
+      resumed: retry after a real recovery window (hours, not minutes) has passed, ideally logging
+      whether `ERR_CERT_AUTHORITY_INVALID` recurs before assuming the code fixes above are sufficient
+      — this session never got a live run past `selectSede`/`selectTramite` far enough to confirm the
+      label fix alone works end-to-end, only that the two race-condition bugs it hit along the way are
+      real and now fixed. The manual booking above closes out this specific `WatchTask`'s real-world
+      goal, but not this roadmap item: node-worker's own automated flow still hasn't been confirmed,
+      live, to get a real trámite/office-scoped check past this point.
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

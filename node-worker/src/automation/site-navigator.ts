@@ -200,6 +200,17 @@ export class PhoneRequiredError extends Error {
 const SEDE_SELECT_SELECTOR = "select#sede";
 /** Confirmed live sufficient for the `cargaTramites()` AJAX reload to land — see `selectSede`'s docblock. */
 const SEDE_AJAX_RELOAD_WAIT_MS = 2000;
+/**
+ * Confirmed live (../../../docs/NODE_WORKER_ROADMAP.md Phase 12): the site's own bot-defense JS
+ * challenge triggers a client-side reload of the trámite page a few seconds after the initial
+ * navigation — `select#sede` and the trámite `<select>`s have zero real `<option>`s until it
+ * resolves. `runAvailabilityCheck` navigates with `waitUntil: "domcontentloaded"`, which fires
+ * before that reload, so a single option-list read right after `page.goto()` can race it. 20
+ * attempts * 500ms gives ~10s, generously past the ~2s reload observed live, with no loading
+ * indicator to wait on instead (the site gives none).
+ */
+const OPTIONS_POLL_MAX_ATTEMPTS = 20;
+const OPTIONS_POLL_INTERVAL_MS = 500;
 const TRAMITE_SELECT_PLACEHOLDER = "Despliega para ver trámites disponibles en esta provincia";
 const CLAVE_HOSTNAME = "pasarela.clave.gob.es";
 const WAF_SUPPORT_ID_PATTERN = /support id is:\s*<?([\w-]+)>?/i;
@@ -279,6 +290,27 @@ async function detectOfferedSlots(page: Page): Promise<CaptchaBlockedSlotsOffere
 }
 
 /**
+ * Retries `check` up to `OPTIONS_POLL_MAX_ATTEMPTS` times (sleeping `OPTIONS_POLL_INTERVAL_MS`
+ * between attempts via `page.waitForTimeout`, never after the last one) until it returns `true`.
+ * Bounded by attempt count, not wall-clock time, so tests using a no-op `waitForTimeout` fake run
+ * every attempt with no real delay instead of racing `Date.now()`.
+ *
+ * Confirmed live (../../../docs/NODE_WORKER_ROADMAP.md Phase 12, second finding): the same
+ * bot-defense reload that empties `#sede`'s options can also fire *while* a poll attempt is
+ * mid-read, which Playwright surfaces as `"Execution context was destroyed, most likely because of
+ * a navigation"` — a transient condition this polling should tolerate, not a real failure, so a
+ * `check` rejection counts as "not yet" rather than aborting the whole poll.
+ */
+async function pollUntil(page: Page, check: () => Promise<boolean>): Promise<boolean> {
+    for (let attempt = 0; attempt < OPTIONS_POLL_MAX_ATTEMPTS; attempt++) {
+        const matched = await check().catch(() => false);
+        if (matched) return true;
+        if (attempt < OPTIONS_POLL_MAX_ATTEMPTS - 1) await page.waitForTimeout(OPTIONS_POLL_INTERVAL_MS);
+    }
+    return false;
+}
+
+/**
  * Confirmed live (../../../docs/NODE_WORKER_ROADMAP.md Phase 9): `select#sede` is a real, visible
  * native `<select>` — not a hidden custom widget, despite its `data-live-search="true"` attribute.
  * `selectOption(..., { force: true })` breaks the page's own `onchange="cargaTramites()"` AJAX
@@ -291,7 +323,11 @@ async function detectOfferedSlots(page: Page): Promise<CaptchaBlockedSlotsOffere
  */
 async function selectSede(page: Page, sede: string): Promise<void> {
     const select = page.locator(SEDE_SELECT_SELECTOR);
-    const optionLabels = await select.locator("option").allTextContents();
+    let optionLabels: readonly string[] = [];
+    await pollUntil(page, async () => {
+        optionLabels = await select.locator("option").allTextContents();
+        return optionLabels.includes(sede);
+    });
     if (!optionLabels.includes(sede)) throw new SedeNotFoundError(sede);
 
     await select.selectOption({ label: sede });
@@ -299,17 +335,21 @@ async function selectSede(page: Page, sede: string): Promise<void> {
 }
 
 async function selectTramite(page: Page, tramiteLabel: string): Promise<void> {
-    const selects: readonly Locator[] = await page.getByRole("combobox", { name: TRAMITE_SELECT_PLACEHOLDER }).all();
-
-    for (const select of selects) {
-        const optionLabels = await select.locator("option").allTextContents();
-        if (optionLabels.includes(tramiteLabel)) {
-            await select.selectOption({ label: tramiteLabel });
-            return;
+    let matchedSelect: Locator | undefined;
+    await pollUntil(page, async () => {
+        const selects: readonly Locator[] = await page.getByRole("combobox", { name: TRAMITE_SELECT_PLACEHOLDER }).all();
+        for (const select of selects) {
+            const optionLabels = await select.locator("option").allTextContents();
+            if (optionLabels.includes(tramiteLabel)) {
+                matchedSelect = select;
+                return true;
+            }
         }
-    }
+        return false;
+    });
 
-    throw new TramiteNotFoundError(tramiteLabel);
+    if (matchedSelect === undefined) throw new TramiteNotFoundError(tramiteLabel);
+    await matchedSelect.selectOption({ label: tramiteLabel });
 }
 
 async function fillApplicantForm(page: Page, applicant: ApplicantData): Promise<void> {

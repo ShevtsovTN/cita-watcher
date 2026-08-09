@@ -124,6 +124,46 @@ describe("createWorkerCommandHandler", () => {
         });
     });
 
+    it("passes procedure.sede through to checkAvailability's request when present", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const { publisher } = fakeEventPublisher();
+        const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" }));
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date("2026-08-05T00:00:00Z"),
+            runCheck,
+        });
+
+        await handler({ ...COMMAND, procedure: { ...COMMAND.procedure, sede: "CNP Benidorm TIE" } });
+
+        expect(runCheck).toHaveBeenCalledWith(
+            session.page,
+            expect.objectContaining({ sede: "CNP Benidorm TIE" }),
+        );
+    });
+
+    it("omits sede from checkAvailability's request when the command doesn't carry one", async () => {
+        const session = fakeSession();
+        const sessionManager = fakeSessionManager(session);
+        const { publisher } = fakeEventPublisher();
+        const runCheck = vi.fn(() => Promise.resolve<NavigationOutcome>({ type: "post_submit_unconfirmed" }));
+        const handler = createWorkerCommandHandler({
+            sessionManager,
+            eventPublisher: publisher,
+            captchaRegistry: fakeCaptchaRegistry(),
+            now: () => new Date("2026-08-05T00:00:00Z"),
+            runCheck,
+        });
+
+        await handler(COMMAND);
+
+        const [, request] = runCheck.mock.calls[0] as [unknown, Record<string, unknown>];
+        expect("sede" in request).toBe(false);
+    });
+
     it("publishes the mapped CheckFailedEvent for the resolved outcome", async () => {
         const sessionManager = fakeSessionManager(fakeSession());
         const { publisher, published } = fakeEventPublisher();

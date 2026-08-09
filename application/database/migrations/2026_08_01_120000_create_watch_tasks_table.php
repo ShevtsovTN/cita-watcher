@@ -19,6 +19,7 @@ return new class () extends Migration {
             // Procedure value object
             $table->string('province');
             $table->string('tramite_code');
+            $table->string('sede')->nullable();
 
             // ApplicantData value object — one ciphertext blob (see
             // Infrastructure\Watcher\Encryption\LaravelApplicantDataEncryptor and

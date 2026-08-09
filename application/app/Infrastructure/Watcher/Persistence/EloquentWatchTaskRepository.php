@@ -34,6 +34,7 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
             'user_id' => $watchTask->userId(),
             'province' => $watchTask->procedure()->province,
             'tramite_code' => $watchTask->procedure()->tramiteCode,
+            'sede' => $watchTask->procedure()->sede,
             'applicant_data' => $this->applicantDataEncryptor->encrypt($watchTask->applicantData()),
             'notification_channel' => $watchTask->notificationChannel(),
             'notification_target' => $watchTask->notificationTarget(),
@@ -85,6 +86,7 @@ final class EloquentWatchTaskRepository implements WatchTaskRepositoryInterface
             procedure: new Procedure(
                 province: $model->province,
                 tramiteCode: $model->tramite_code,
+                sede: $model->sede,
             ),
             applicantData: $this->applicantDataEncryptor->decrypt($model->applicant_data),
             notificationChannel: $model->notification_channel,

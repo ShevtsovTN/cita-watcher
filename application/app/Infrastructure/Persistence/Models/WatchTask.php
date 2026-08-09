@@ -13,6 +13,7 @@ use Illuminate\Database\Eloquent\Model;
     'user_id',
     'province',
     'tramite_code',
+    'sede',
     'applicant_data',
     'notification_channel',
     'notification_target',

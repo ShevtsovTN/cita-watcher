@@ -124,9 +124,14 @@ follow-up) shipped the fix into `node-worker/src/automation/session-manager.ts`'
 launcher (headed under Xvfb, UA/`navigator.webdriver` overrides) and confirmed the real service
 starts up correctly with it (catching and fixing a real PID-1/Xvfb-signal startup hang along the
 way) — but deliberately did **not** spend another live attempt against the real site confirming this
-actually gets a real run past the point Phase 9's attempts stalled at. Check the relevant roadmap
-(`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a later phase's
-piece exists.
+actually gets a real run past the point Phase 9's attempts stalled at. `docs/NODE_WORKER_ROADMAP.md`
+Phase 11 / `docs/APPLICATION_ROADMAP.md` Phase 12 (both done, same increment) then closed the `sede`
+gap Phase 10 left open: `Procedure` gained an optional `sede` field on both sides (node-worker's
+`types/commands.ts` plus the Laravel `Domain`/`Infrastructure`/`Presentation` layers and a matching
+`watch_tasks` migration column), so a `WatchTask` created through the real API can now specify an
+office — still unconfirmed live, pure wire-contract plumbing verified by tests only. Check the
+relevant roadmap (`docs/APPLICATION_ROADMAP.md`, `docs/NODE_WORKER_ROADMAP.md`) before assuming a
+later phase's piece exists.
 
 ## Cross-service architecture
 

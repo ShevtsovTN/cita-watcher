@@ -47,6 +47,15 @@ attempting a real reservation on the government site. That live walkthrough — 
 solving a real captcha through this page, end-to-end — is the one thing still open; check the
 roadmap before assuming a later phase's piece exists.
 
+Phase 12 (also done) is the Laravel-side half of a `Procedure` wire-contract change begun on the
+node-worker side (`../docs/NODE_WORKER_ROADMAP.md` Phase 10/11): `Domain/Watcher/ValueObjects/Procedure`
+gained an optional `?string $sede`, the `watch_tasks` migration a matching nullable column,
+`CreateWatchTaskRequest`/`WatchTaskController`/`WatchTaskResource` read/write/echo it, and
+`WorkerCommand::forAvailabilityCheck()` omits it from the wire payload via `array_filter()` when
+`null`, mirroring node-worker's own "absent, not null" parsing convention. A `WatchTask` created
+through the actual API can now specify an office. Not confirmed live — this was a pure
+wire-contract/plumbing change, verified by unit/feature tests only.
+
 ## Architecture principles (apply to all new business logic)
 
 This project follows **Domain-Driven Design** within a **Clean Architecture** layering, and

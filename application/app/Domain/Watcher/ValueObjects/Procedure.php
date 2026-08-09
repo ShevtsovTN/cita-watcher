@@ -11,6 +11,7 @@ final readonly class Procedure
     public function __construct(
         public string $province,
         public string $tramiteCode,
+        public ?string $sede = null,
     ) {
         if ('' === mb_trim($this->province)) {
             throw new InvalidProcedureException('Procedure province must not be blank.');

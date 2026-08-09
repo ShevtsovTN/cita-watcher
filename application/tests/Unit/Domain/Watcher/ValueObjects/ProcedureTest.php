@@ -16,6 +16,14 @@ final class ProcedureTest extends TestCase
 
         $this->assertSame('Madrid', $procedure->province);
         $this->assertSame('CITA_DNI', $procedure->tramiteCode);
+        $this->assertNull($procedure->sede);
+    }
+
+    public function test_constructor_assigns_an_explicit_sede(): void
+    {
+        $procedure = new Procedure(province: 'Alicante', tramiteCode: 'CITA_TIE', sede: 'CNP Benidorm TIE');
+
+        $this->assertSame('CNP Benidorm TIE', $procedure->sede);
     }
 
     public function test_it_rejects_a_blank_province(): void

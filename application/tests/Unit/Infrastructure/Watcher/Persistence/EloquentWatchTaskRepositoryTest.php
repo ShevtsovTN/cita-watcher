@@ -44,7 +44,7 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
         $user = User::factory()->create();
         $repository = $this->app->make(EloquentWatchTaskRepository::class);
 
-        $saved = $repository->save($this->makeWatchTask($user->id, phone: '600123456'));
+        $saved = $repository->save($this->makeWatchTask($user->id, phone: '600123456', sede: 'CNP Benidorm TIE'));
 
         $found = $repository->find($saved->id());
 
@@ -53,6 +53,7 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
         $this->assertSame($user->id, $found->userId());
         $this->assertSame('Madrid', $found->procedure()->province);
         $this->assertSame('CITA_DNI', $found->procedure()->tramiteCode);
+        $this->assertSame('CNP Benidorm TIE', $found->procedure()->sede);
         $this->assertSame('Juan Pérez', $found->applicantData()->fullName);
         $this->assertSame('12345678A', $found->applicantData()->documentId);
         $this->assertSame('juan@example.com', $found->applicantData()->email);
@@ -148,12 +149,12 @@ final class EloquentWatchTaskRepositoryTest extends TestCase
         $this->assertNull($repository->find($watchTask->id()));
     }
 
-    private function makeWatchTask(int $userId, ?string $phone = null): WatchTask
+    private function makeWatchTask(int $userId, ?string $phone = null, ?string $sede = null): WatchTask
     {
         return new WatchTask(
             id: null,
             userId: $userId,
-            procedure: new Procedure(province: 'Madrid', tramiteCode: 'CITA_DNI'),
+            procedure: new Procedure(province: 'Madrid', tramiteCode: 'CITA_DNI', sede: $sede),
             applicantData: new ApplicantData(
                 fullName: 'Juan Pérez',
                 documentId: '12345678A',

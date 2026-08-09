@@ -618,6 +618,36 @@ exists and was verified as thoroughly as is safe to do outside a real reservatio
 nobody has run it against a real session yet. Known, documented limitation carried into this page:
 no modifier-key support (Shift/Ctrl/Alt) — the relay's own wire contract doesn't carry them.
 
+## Phase 12 — `sede` field in the `Procedure` wire contract (Laravel-side half of node-worker Phase 11) ✅ done
+
+`../docs/NODE_WORKER_ROADMAP.md` Phase 10 shipped real `sede` (office) selection into
+`site-navigator.ts`, but nothing could ever populate it: no `sede` field existed on either side's
+`Procedure`. This phase, together with `../docs/NODE_WORKER_ROADMAP.md` Phase 11 (same increment),
+closes that gap.
+
+- [x] `Domain/Watcher/ValueObjects/Procedure` gained an optional `?string $sede = null` constructor
+      param — no blank-validation, matching `ApplicantData::$phone`'s existing nullable-field
+      pattern rather than `province`/`tramiteCode`'s required-non-blank one.
+- [x] `2026_08_01_120000_create_watch_tasks_table.php` gained a nullable `sede` column, edited in
+      place rather than a new migration — same convention as Phase 6's `ApplicantData` column change:
+      the table still holds no real data on this not-yet-shipped branch.
+- [x] `App\Infrastructure\Persistence\Models\WatchTask`'s `#[Fillable]` and
+      `EloquentWatchTaskRepository::save()`/`toDomain()` map the new column through.
+- [x] `CreateWatchTaskRequest` validates `'sede' => ['nullable', 'string']`; `WatchTaskController`
+      passes `$request->string('sede')->toString() ?: null` into `Procedure`; `WatchTaskResource`
+      echoes `procedure.sede` back in responses — not sensitive, unlike the deliberately-omitted
+      `documentId`, so no reason to withhold it the way Phase 7 withholds that field.
+- [x] `Infrastructure/Watcher/Messaging/WorkerCommand::forAvailabilityCheck()` builds `procedure` via
+      `array_filter()` so a `null` `sede` is omitted from the wire payload entirely, rather than sent
+      as a literal JSON `null` — matches node-worker's own parser convention for this field (Phase 11
+      on that side: "absent" and "present as a string" are the only two states it accepts).
+- [x] 154 tests pass (up from 150, all green); Pint clean.
+
+**Still not done, not this phase's job:** no live attempt confirmed a `WatchTask` created with a
+real `sede` actually reaches the trámite it's meant to unlock — this phase is wire-contract plumbing
+only, verified by unit/feature tests against the in-memory test DB, not a live run. The manual
+captcha-solving walkthrough (Phase 9/11) remains exactly as open as before, unrelated to this change.
+
 ## Explicit non-goals for this roadmap
 
 - `node-worker` internals — tracked in `../docs/NODE_WORKER_ROADMAP.md`, only consumed here as an

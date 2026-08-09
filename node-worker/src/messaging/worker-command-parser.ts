@@ -25,12 +25,17 @@ function parseProcedure(candidate: unknown): Procedure | undefined {
 
     const province = candidate["province"];
     const tramiteCode = candidate["tramiteCode"];
+    const sede = candidate["sede"];
 
     if (typeof province !== "string" || typeof tramiteCode !== "string") {
         return undefined;
     }
 
-    return { province, tramiteCode };
+    if (sede !== undefined && typeof sede !== "string") {
+        return undefined;
+    }
+
+    return sede === undefined ? { province, tramiteCode } : { province, tramiteCode, sede };
 }
 
 function parseApplicant(candidate: unknown): ApplicantData | undefined {

@@ -33,10 +33,11 @@ final readonly class WorkerCommand
             commandId: (string) Str::uuid(),
             type: 'check_availability',
             watchTaskId: $watchTask->id(),
-            procedure: [
+            procedure: array_filter([
                 'province' => $watchTask->procedure()->province,
                 'tramiteCode' => $watchTask->procedure()->tramiteCode,
-            ],
+                'sede' => $watchTask->procedure()->sede,
+            ], static fn(mixed $value): bool => null !== $value),
             applicant: [
                 'fullName' => $watchTask->applicantData()->fullName,
                 'documentType' => $watchTask->applicantData()->documentType->value,
@@ -50,7 +51,7 @@ final readonly class WorkerCommand
     }
 
     /**
-     * @return array{commandId: string, type: string, watchTaskId: ?int, procedure: array{province: string, tramiteCode: string}, applicant: array{fullName: string, documentType: string, documentId: string, email: string, phone: ?string, birthYear: int, nationality: string}}
+     * @return array{commandId: string, type: string, watchTaskId: ?int, procedure: array{province: string, tramiteCode: string, sede?: string}, applicant: array{fullName: string, documentType: string, documentId: string, email: string, phone: ?string, birthYear: int, nationality: string}}
      */
     public function toArray(): array
     {

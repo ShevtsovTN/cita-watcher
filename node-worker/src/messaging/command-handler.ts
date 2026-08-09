@@ -116,6 +116,7 @@ export function createWorkerCommandHandler(deps: WorkerCommandHandlerDeps): Work
             province: command.procedure.province,
             tramiteLabel: command.procedure.tramiteCode,
             applicant: command.applicant,
+            ...(command.procedure.sede === undefined ? {} : { sede: command.procedure.sede }),
         };
 
         let event: WorkerEvent;

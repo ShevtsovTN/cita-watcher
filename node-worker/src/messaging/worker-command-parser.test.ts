@@ -64,6 +64,20 @@ describe("parseWorkerCommand", () => {
         expect(parseWorkerCommand(JSON.stringify(validPayload({ procedure: { province: "Madrid" } })))).toBeUndefined();
     });
 
+    it("accepts an optional sede on the procedure", () => {
+        const procedure = { province: "Madrid", tramiteCode: "CITA_DNI", sede: "CNP Benidorm TIE" };
+
+        const command = parseWorkerCommand(JSON.stringify(validPayload({ procedure })));
+
+        expect(command?.procedure.sede).toBe("CNP Benidorm TIE");
+    });
+
+    it("rejects a procedure with a non-string sede", () => {
+        const procedure = { province: "Madrid", tramiteCode: "CITA_DNI", sede: 42 };
+
+        expect(parseWorkerCommand(JSON.stringify(validPayload({ procedure })))).toBeUndefined();
+    });
+
     it("rejects an applicant missing email", () => {
         const applicant = { fullName: "Jane Doe", documentId: "00000000A", phone: null };
 

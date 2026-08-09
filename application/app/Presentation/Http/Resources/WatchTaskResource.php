@@ -24,6 +24,7 @@ final class WatchTaskResource extends JsonResource
             'procedure' => [
                 'province' => $this->resource->procedure()->province,
                 'tramiteCode' => $this->resource->procedure()->tramiteCode,
+                'sede' => $this->resource->procedure()->sede,
             ],
             // documentId/documentType/birthYear/nationality are deliberately omitted — see
             // docs/APPLICATION_ROADMAP.md Phase 7 notes; none of it ever needs to round-trip back

@@ -60,6 +60,38 @@ final class WorkerCommandTest extends TestCase
         ], $command->toArray());
     }
 
+    public function test_for_availability_check_includes_sede_in_the_procedure_when_present(): void
+    {
+        $watchTask = new WatchTask(
+            id: 42,
+            userId: 7,
+            procedure: new Procedure(province: 'Alicante', tramiteCode: 'CITA_TIE', sede: 'CNP Benidorm TIE'),
+            applicantData: new ApplicantData(fullName: 'Juan Pérez', documentId: '12345678A', email: 'juan@example.com', documentType: DocumentTypeEnum::DNI, birthYear: 1990, nationality: 'España'),
+            notificationChannel: WatchTaskNotificationChannelEnum::TELEGRAM,
+            notificationTarget: '123456789',
+        );
+
+        $command = WorkerCommand::forAvailabilityCheck($watchTask);
+
+        $this->assertSame('CNP Benidorm TIE', $command->toArray()['procedure']['sede']);
+    }
+
+    public function test_for_availability_check_omits_sede_from_the_procedure_when_absent(): void
+    {
+        $watchTask = new WatchTask(
+            id: 42,
+            userId: 7,
+            procedure: new Procedure(province: 'Madrid', tramiteCode: 'CITA_DNI'),
+            applicantData: new ApplicantData(fullName: 'Juan Pérez', documentId: '12345678A', email: 'juan@example.com', documentType: DocumentTypeEnum::DNI, birthYear: 1990, nationality: 'España'),
+            notificationChannel: WatchTaskNotificationChannelEnum::TELEGRAM,
+            notificationTarget: '123456789',
+        );
+
+        $command = WorkerCommand::forAvailabilityCheck($watchTask);
+
+        $this->assertArrayNotHasKey('sede', $command->toArray()['procedure']);
+    }
+
     public function test_each_command_gets_a_unique_command_id(): void
     {
         $watchTask = new WatchTask(

@@ -48,6 +48,7 @@ final class WatchTaskController extends Controller
             procedure: new Procedure(
                 province: $request->string('province')->toString(),
                 tramiteCode: $request->string('tramiteCode')->toString(),
+                sede: $request->string('sede')->toString() ?: null,
             ),
             applicantData: new ApplicantData(
                 fullName: $request->string('fullName')->toString(),

@@ -34,9 +34,24 @@ final class WatchTaskControllerTest extends TestCase
         $response->assertStatus(201);
         $response->assertJsonPath('data.status', 'pending');
         $response->assertJsonPath('data.procedure.province', 'Madrid');
+        $response->assertJsonPath('data.procedure.sede', 'CNP Benidorm TIE');
         $response->assertJsonPath('data.applicant.fullName', 'Juan Pérez');
         $response->assertJsonMissingPath('data.applicant.documentId');
         $this->assertStringNotContainsString('12345678A', $response->getContent());
+    }
+
+    public function test_it_creates_a_watch_task_with_no_sede(): void
+    {
+        $user = User::factory()->create();
+        Sanctum::actingAs($user);
+
+        $payload = $this->createPayload();
+        unset($payload['sede']);
+
+        $response = $this->postJson('/api/watch-tasks', $payload);
+
+        $response->assertStatus(201);
+        $response->assertJsonPath('data.procedure.sede', null);
     }
 
     public function test_create_validation_errors_return_422(): void
@@ -180,6 +195,7 @@ final class WatchTaskControllerTest extends TestCase
         return [
             'province' => 'Madrid',
             'tramiteCode' => 'CITA_DNI',
+            'sede' => 'CNP Benidorm TIE',
             'fullName' => 'Juan Pérez',
             'documentType' => 'dni',
             'documentId' => '12345678A',

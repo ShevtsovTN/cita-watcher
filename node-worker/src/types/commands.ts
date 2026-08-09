@@ -19,6 +19,13 @@
 export interface Procedure {
     readonly province: string;
     readonly tramiteCode: string;
+    /**
+     * Видимый текст опции `select#sede` — опционально, тот же контракт, что и
+     * `../automation/site-navigator.ts`'s `CheckAvailabilityRequest.sede` (Phase 10): некоторые
+     * trámite (например, recogida de TIE) появляются в списке только после выбора конкретной
+     * sede. Опущено — сайт использует свой дефолт "Cualquier oficina".
+     */
+    readonly sede?: string;
 }
 
 /**

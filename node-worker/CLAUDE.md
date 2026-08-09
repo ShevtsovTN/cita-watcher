@@ -180,6 +180,13 @@ actual API; no new live attempt was made against the real site to confirm Phase 
 actually resolved end-to-end (deliberate — see Phase 9's note on likely-degraded IP reputation); the
 manual captcha walkthrough and real success detection remain exactly as open as before.
 
+Phase 11 closed the `sede` gap Phase 10 left open: `../types/commands.ts`'s `Procedure` gained an
+optional `sede?: string`, `worker-command-parser.ts` validates/passes it through, and
+`command-handler.ts` forwards it into `CheckAvailabilityRequest` only when present. The Laravel-side
+half shipped in the same increment — see `../docs/APPLICATION_ROADMAP.md` Phase 12. Still not done:
+no live attempt has confirmed a real `sede`-carrying `WatchTask` actually reaches the trámite it's
+meant to unlock; this was a pure wire-contract change, verified by tests only.
+
 ## Conventions
 
 The same dependency-inversion spirit from the Laravel app applies here even though it isn't

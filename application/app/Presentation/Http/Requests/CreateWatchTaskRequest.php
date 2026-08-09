@@ -19,6 +19,7 @@ final class CreateWatchTaskRequest extends FormRequest
         return [
             'province' => ['required', 'string'],
             'tramiteCode' => ['required', 'string'],
+            'sede' => ['nullable', 'string'],
             'fullName' => ['required', 'string'],
             'documentType' => ['required', Rule::enum(DocumentTypeEnum::class)],
             'documentId' => ['required', 'string'],

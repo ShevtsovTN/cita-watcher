@@ -895,14 +895,12 @@ throwaway script; this phase puts the confirmed fixes into the actual production
       confirmed behavior exactly (site defaults to "Cualquier oficina"), so this doesn't risk any
       trámite that was already working without office selection.
 - [x] 214 tests pass (up from 209 at the end of Phase 9); `tsc`/`eslint` both clean.
-- [ ] **Not done — the wire contract still doesn't carry `sede`.** `messaging/command-handler.ts`
-      builds `CheckAvailabilityRequest` from `command.procedure.province`/`.tramiteCode` only —
-      there's no `sede` on `../types/commands.ts`'s `Procedure`, and no matching field on the
-      Laravel-side `Procedure.php`/`WatchTask` schema/API either. A real `WatchTask` created through
-      the actual API still cannot specify an office, the same cross-service, both-sides-in-lockstep
-      change `ApplicantData`'s `documentType`/`birthYear`/`nationality` fields were (see Phase 3) —
-      not attempted here, since it also means a Laravel migration/API/encryption-column change this
-      phase didn't scope in.
+- [x] **Was not done here — closed in Phase 11 below.** `messaging/command-handler.ts`
+      built `CheckAvailabilityRequest` from `command.procedure.province`/`.tramiteCode` only, with no
+      `sede` on `../types/commands.ts`'s `Procedure` and no matching field on the Laravel-side
+      `Procedure.php`/`WatchTask` schema/API. A real `WatchTask` created through the actual API could
+      not specify an office. See Phase 11 for the both-sides-in-lockstep fix (same shape as
+      `ApplicantData`'s `documentType`/`birthYear`/`nationality` fields, Phase 3).
 - [ ] **Not done — no new live attempt against the real site.** This phase shipped and unit-tested
       the fixes Phase 9 diagnosed, and confirmed the real service starts up correctly with them, but
       deliberately did not run another live booking attempt to confirm they resolve Phase 9's actual
@@ -914,6 +912,42 @@ throwaway script; this phase puts the confirmed fixes into the actual production
       published) — neither is closer to done than at the end of Phase 8/9. Both need an actual live
       run that reaches the captcha step, which this phase's code changes may or may not now allow;
       unconfirmed either way.
+
+## Phase 11 — Ship `sede` into the cross-service wire contract ✅ done
+
+Closes the gap Phase 10 flagged: `site-navigator.ts`'s `selectSede()` existed since Phase 10, but
+nothing upstream of it could ever populate `CheckAvailabilityRequest.sede`, since neither the
+node-worker wire type nor the Laravel domain/API carried a `sede` field. This phase is the
+both-sides-in-lockstep change, same shape as `ApplicantData`'s `documentType`/`birthYear`/
+`nationality` fields (Phase 3).
+
+- [x] `../types/commands.ts`'s `Procedure` gained an optional `sede?: string` — same "caller
+      supplies the exact real Spanish `<select>` option text, omitted means the site's own
+      `"Cualquier oficina"` default" contract as `CheckAvailabilityRequest.sede` already had.
+- [x] `messaging/worker-command-parser.ts`'s `parseProcedure` validates `sede` as string-or-absent
+      (rejects any other type) and only includes the key on the parsed `Procedure` when present —
+      matches `tsconfig.json`'s `exactOptionalPropertyTypes` rather than ever assigning it
+      `undefined` explicitly.
+- [x] `messaging/command-handler.ts` forwards `command.procedure.sede` into the `checkAvailability`
+      request only when defined (conditional spread, not `sede: command.procedure.sede`, for the
+      same `exactOptionalPropertyTypes` reason).
+- [x] **Laravel-side half, same increment**: `Domain/Watcher/ValueObjects/Procedure.php` gained an
+      optional `?string $sede = null` (no blank-validation, same pattern as `ApplicantData::$phone`);
+      the `watch_tasks` migration gained a nullable `sede` column (edited in place — the table still
+      holds no real data, same convention as Phase 6's `ApplicantData` migration edit);
+      `EloquentWatchTaskRepository`/the `WatchTask` Eloquent model's `#[Fillable]` map it through;
+      `CreateWatchTaskRequest` validates `'sede' => ['nullable', 'string']`; `WatchTaskController`
+      passes it into `Procedure`; `WatchTaskResource` echoes it back under `procedure.sede` (not
+      sensitive, unlike `documentId` — same reasoning as `province`/`tramiteCode` already being
+      echoed). `WorkerCommand::forAvailabilityCheck()` now builds `procedure` via `array_filter()`
+      so the key is omitted from the wire payload entirely when `sede` is `null`, mirroring the
+      node-worker parser's own "absent, not null" convention for this field.
+- [x] 218 node-worker tests pass (up from 214); 154 Laravel tests pass (up from 150); `tsc`/`eslint`
+      and Pint both clean.
+- [ ] **Not done — no new live attempt against the real site.** This phase is a pure wire-contract
+      change, verified with unit/feature tests only; it doesn't touch `session-manager.ts`'s launch
+      recipe or re-attempt Phase 9/10's diagnosed bot-defense blocker. A `WatchTask` created with a
+      real `sede` still hasn't been proven, live, to actually reach the trámite this unlocks.
 
 ## Explicit non-goals for this roadmap
 

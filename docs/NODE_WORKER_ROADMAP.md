@@ -949,6 +949,62 @@ both-sides-in-lockstep change, same shape as `ApplicantData`'s `documentType`/`b
       recipe or re-attempt Phase 9/10's diagnosed bot-defense blocker. A `WatchTask` created with a
       real `sede` still hasn't been proven, live, to actually reach the trámite this unlocks.
 
+## Phase 12 — Live retry with real `sede`: root-caused why it still failed, found the label is short by an address ⚠️ partially done — see notes
+
+Direct follow-up, same day as Phase 11 shipped: an actual live retry of the recogida-de-TIE booking
+attempt (`watch_task_id=3`, the same real developer's real applicant data from Phase 9, this time
+using the real HTTP API + real Redis-driven service end-to-end, not a throwaway script) against
+`Alicante` / `POLICIA - RECOGIDA DE TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)` / `sede: "CNP Benidorm
+TIE"`.
+
+- [x] **Found and fixed a real dev-environment bug, application-side**: this dev Postgres DB had
+      already run `2026_08_01_120000_create_watch_tasks_table.php` *before* Phase 11 edited it to add
+      `sede` — contradicting that phase's own assumption ("the table still holds no real data").
+      `watch_tasks` already held a real row (`id=3`) with real encrypted applicant data. Fixed with a
+      one-off `Schema::table('watch_tasks', ...)` `ALTER` run directly against the live dev DB (not a
+      new migration file — the create-table migration already declares `sede` correctly for any
+      fresh install/CI run; a second migration adding the same column would break those). See
+      `../docs/APPLICATION_ROADMAP.md` Phase 13 for the Laravel-side note on this.
+- [x] **Confirmed live, and it's a real bug, not reputation noise**: the `sede` value used
+      everywhere on record since Phase 9/10 (`"CNP Benidorm TIE"`) is not the office `<select>`'s
+      real option text. The real text includes the branch address:
+      `"CNP Benidorm TIE, Callosa D\`Ensarria, 2, Benidorm"` — confirmed by dumping all 15 real
+      `select#sede` options live. `selectSede()`'s exact-match `optionLabels.includes(sede)` was
+      always going to fail against the short form. Phase 9/10's own recorded examples
+      (`"CNP Alicante TIE"`, `"CNP Benidorm TIE"`) were themselves incomplete transcriptions from
+      that day's live recon, not a copy error introduced later. `watch_task_id=3`'s `sede` has been
+      corrected to the full string as an immediate, real-data fix (not a code change — this is a
+      per-`WatchTask` data-quality issue, not something `site-navigator.ts` should special-case).
+- [x] **Confirmed live**: `select#sede`'s options are populated asynchronously, after a client-side
+      reload the bot-defense challenge triggers once it resolves (`page.on("framenavigated")` fired a
+      second time for the *same* URL, a few seconds after the initial `domcontentloaded`) — the first
+      response body's `#sede` has **zero** `<option>`s. `runAvailabilityCheck` does not wait for this;
+      it navigates with `waitUntil: "domcontentloaded"` and immediately calls `selectSede`/
+      `selectTramite`. This did not visibly matter for `selectSede` in this session's traces (Playwright's
+      own `selectOption` actionability retry loop stays parked on the locator "waiting for options" for
+      up to its 30s timeout, which is longer than the observed ~2s challenge-reload window), but it's
+      a real, unhandled race, not just a theoretical one — worth a real fix (waiting for a non-empty
+      `select#sede option` count, not just DOM presence of the `<select>` tag) rather than continuing
+      to rely on timeout-retry luck. Not fixed this phase.
+- [x] **Confirmed, directly comparing a fresh throwaway browser vs. the long-lived production
+      `PlaywrightSessionManager` browser**: three same-request live attempts through the real
+      Redis-driven service, all with the corrected wire contract, returned three *different* error
+      shapes (`TramiteNotFoundError`, then again `TramiteNotFoundError`, mechanically inconsistent
+      with the confirmed exact-label mismatch, which should deterministically throw
+      `SedeNotFoundError`), while an isolated throwaway script — same launch recipe, same request
+      shape, brand-new browser process each run — deterministically threw the *expected*
+      `SedeNotFoundError`. This is new, direct evidence for Phase 9's "IP-reputation-related" theory:
+      the one variable that differs between the two is the browser process's/IP's accumulated request
+      history against the site today, not the code path. Not conclusively isolated (network vs.
+      browser-process reputation vs. something else); flagged, not resolved.
+- [ ] **Still open — no successful live run past `selectSede`/`selectTramite` this session.** The
+      corrected `sede` value hasn't yet been exercised through the real, currently-running,
+      already-reputation-degraded `node-worker` process — the next real dispatch is the actual test of
+      whether the label fix alone is sufficient, or whether the session/IP needs to recover first.
+      Deliberately not spent this session, to avoid burning another live attempt before the fix could
+      even be verified as correct in isolation (done instead via the throwaway-script comparison
+      above).
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

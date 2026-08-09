@@ -306,6 +306,76 @@ describe("runAvailabilityCheck", () => {
         expect(page.waitForTimeout).toHaveBeenCalled();
     });
 
+    it("selects the sede once its options populate on a later poll attempt (bot-defense reload race)", async () => {
+        const optionsLocator = fakeLocator({
+            allTextContents: vi
+                .fn()
+                .mockResolvedValueOnce([]) // challenge not yet resolved — matches Phase 12's live finding
+                .mockResolvedValueOnce([])
+                .mockResolvedValue(["Cualquier oficina", "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm"]),
+        });
+        let selectedSede: string | undefined;
+        const delayedSedeSelect = fakeLocator({
+            locator: vi.fn(() => optionsLocator),
+            selectOption: vi.fn((opts: { label: string }) => {
+                selectedSede = opts.label;
+                return Promise.resolve([opts.label]);
+            }),
+        });
+        const { page } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"], []],
+            clavePanelVisible: true,
+        });
+        const originalLocatorImpl = (
+            page.locator as unknown as { getMockImplementation: () => (selector: string) => Locator }
+        ).getMockImplementation();
+        (page.locator as unknown as { mockImplementation: (fn: (selector: string) => Locator) => void }).mockImplementation(
+            (selector: string) => (selector === SEDE_SELECT_SELECTOR ? delayedSedeSelect : originalLocatorImpl(selector)),
+        );
+
+        await runAvailabilityCheck(
+            page,
+            buildRequest({ sede: "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm" }),
+        );
+
+        expect(selectedSede).toBe("CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm");
+        expect(optionsLocator.allTextContents).toHaveBeenCalledTimes(3);
+    });
+
+    it("tolerates a mid-poll 'Execution context was destroyed' error (a live-observed mid-reload race) and keeps polling", async () => {
+        const optionsLocator = fakeLocator({
+            allTextContents: vi
+                .fn()
+                .mockRejectedValueOnce(new Error("locator.allTextContents: Execution context was destroyed, most likely because of a navigation"))
+                .mockResolvedValue(["Cualquier oficina", "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm"]),
+        });
+        let selectedSede: string | undefined;
+        const delayedSedeSelect = fakeLocator({
+            locator: vi.fn(() => optionsLocator),
+            selectOption: vi.fn((opts: { label: string }) => {
+                selectedSede = opts.label;
+                return Promise.resolve([opts.label]);
+            }),
+        });
+        const { page } = fakePage({
+            tramiteOptionLists: [["POLICIA-ASIGNACIÓN DE NIE"], []],
+            clavePanelVisible: true,
+        });
+        const originalLocatorImpl = (
+            page.locator as unknown as { getMockImplementation: () => (selector: string) => Locator }
+        ).getMockImplementation();
+        (page.locator as unknown as { mockImplementation: (fn: (selector: string) => Locator) => void }).mockImplementation(
+            (selector: string) => (selector === SEDE_SELECT_SELECTOR ? delayedSedeSelect : originalLocatorImpl(selector)),
+        );
+
+        await runAvailabilityCheck(
+            page,
+            buildRequest({ sede: "CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm" }),
+        );
+
+        expect(selectedSede).toBe("CNP Benidorm TIE, Callosa D`Ensarria, 2, Benidorm");
+    });
+
     it("throws SedeNotFoundError when the given sede isn't among select#sede's options", async () => {
         const { page } = fakePage({ sedeOptionLabels: ["Cualquier oficina", "CNP Alcoy, Placeta Les Xiques, S/N, Alcoy"] });
 
@@ -325,6 +395,43 @@ describe("runAvailabilityCheck", () => {
         await runAvailabilityCheck(state.page, buildRequest());
 
         expect(state.selectedTramite).toBe("POLICIA-ASIGNACIÓN DE NIE");
+    });
+
+    it("finds the trámite once the combobox options populate on a later poll attempt (bot-defense reload race)", async () => {
+        const optionsLocator = fakeLocator({
+            allTextContents: vi
+                .fn()
+                .mockResolvedValueOnce([]) // challenge not yet resolved
+                .mockResolvedValue(["POLICIA-ASIGNACIÓN DE NIE"]),
+        });
+        let selectedTramite: string | undefined;
+        const delayedTramiteSelect = fakeLocator({
+            locator: vi.fn(() => optionsLocator),
+            selectOption: vi.fn((opts: { label: string }) => {
+                selectedTramite = opts.label;
+                return Promise.resolve([opts.label]);
+            }),
+        });
+        const tramiteGroupLocator = fakeLocator({ all: vi.fn(() => Promise.resolve([delayedTramiteSelect])) });
+        const { page } = fakePage({ clavePanelVisible: true });
+        const originalGetByRoleImpl = (
+            page.getByRole as unknown as {
+                getMockImplementation: () => (role: string, opts?: { name?: string }) => Locator;
+            }
+        ).getMockImplementation();
+        (
+            page.getByRole as unknown as {
+                mockImplementation: (fn: (role: string, opts?: { name?: string }) => Locator) => void;
+            }
+        ).mockImplementation((role: string, opts?: { name?: string }) =>
+            role === "combobox" && opts?.name === TRAMITE_SELECT_PLACEHOLDER
+                ? tramiteGroupLocator
+                : originalGetByRoleImpl(role, opts),
+        );
+
+        await runAvailabilityCheck(page, buildRequest());
+
+        expect(selectedTramite).toBe("POLICIA-ASIGNACIÓN DE NIE");
     });
 
     it("returns requires_clave immediately when the Cl@ve panel appears, without clicking Entrar", async () => {

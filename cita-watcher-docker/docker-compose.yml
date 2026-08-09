@@ -23,6 +23,10 @@
 #   node-worker     — Playwright + CDP screencast relay, реальные проверки на сайте sede...
 #   redis           — очередь команд + pub/sub событий между Laravel и Node
 #   db              — Postgres, хранение WatchTask/логов/зашифрованных данных заявителя
+#   mailpit         — dev-перехватчик почты: SMTP-приёмник + веб-UI на localhost:8025, письма
+#                   (SendNotificationOnCheckFailedListener/NotifyOnCaptchaInterventionRequiredListener
+#                   и т.п., все реально отправляются из процесса event-consumer) никуда не уходят
+#                   наружу — см. application/.env's MAIL_HOST=mailpit
 
 x-app-build: &app-build
   context: ../application
@@ -64,6 +68,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      mailpit:
+        condition: service_started
     networks:
       - cita-net
 
@@ -93,6 +99,8 @@ services:
       - ../application:/var/www/html
     depends_on:
       app:
+        condition: service_started
+      mailpit:
         condition: service_started
     networks:
       - cita-net
@@ -176,6 +184,14 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+    networks:
+      - cita-net
+
+  mailpit:
+    image: axllent/mailpit:latest
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${MAILPIT_UI_PORT:-8025}:8025" # dev-only: веб-UI со списком писем
     networks:
       - cita-net
 

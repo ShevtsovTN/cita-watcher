@@ -1,0 +1,53 @@
+### List my watch tasks
+GET {{baseUrl}}/api/watch-tasks
+Authorization: Bearer {{token}}
+
+
+### Create a watch task
+POST {{baseUrl}}/api/watch-tasks
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "province": "Alicante",
+  "tramiteCode": "POLICIA - RECOGIDA DE TARJETA DE IDENTIDAD DE EXTRANJERO (TIE)",
+  "sede": "CNP Benidorm TIE",
+  "fullName": "Juan Pérez",
+  "documentType": "nie",
+  "documentId": "X1234567L",
+  "email": "juan@example.com",
+  "phone": "600123456",
+  "birthYear": 1990,
+  "nationality": "VENEZUELA",
+  "notificationChannel": "mail",
+  "notificationTarget": "juan@example.com"
+}
+
+> {%
+    client.test("status is 201", () => response.status === 201);
+    client.global.set("watchTaskId", response.body.data.id);
+%}
+
+
+### Show a single watch task
+GET {{baseUrl}}/api/watch-tasks/{{watchTaskId}}
+Authorization: Bearer {{token}}
+
+
+### Pause a watch task
+POST {{baseUrl}}/api/watch-tasks/{{watchTaskId}}/pause
+Authorization: Bearer {{token}}
+
+
+### Resume a paused watch task
+POST {{baseUrl}}/api/watch-tasks/{{watchTaskId}}/resume
+Authorization: Bearer {{token}}
+
+
+### Delete a watch task
+DELETE {{baseUrl}}/api/watch-tasks/{{watchTaskId}}
+Authorization: Bearer {{token}}
+
+
+### Unauthenticated request (expect 401)
+GET {{baseUrl}}/api/watch-tasks

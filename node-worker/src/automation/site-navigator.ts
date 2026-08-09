@@ -211,7 +211,16 @@ const SEDE_AJAX_RELOAD_WAIT_MS = 2000;
  */
 const OPTIONS_POLL_MAX_ATTEMPTS = 20;
 const OPTIONS_POLL_INTERVAL_MS = 500;
-const TRAMITE_SELECT_PLACEHOLDER = "Despliega para ver trámites disponibles en esta provincia";
+/**
+ * Confirmed live (../../../docs/NODE_WORKER_ROADMAP.md Phase 13): the trámite `<select>`s have no
+ * associated `<label>`, so their Playwright accessible name is empty — a prior
+ * `page.getByRole("combobox", { name: "Despliega para ver trámites disponibles en esta provincia" })`
+ * (matching on that placeholder-like first `<option>`'s text) matched zero elements on the real
+ * page, even though the target `<option>` genuinely existed, which is exactly why `TramiteNotFoundError`
+ * fired in production despite `tramiteCode` being byte-for-byte correct. The real, stable structural
+ * hook is the `id` prefix confirmed live: `tramiteGrupo[0]`/`tramiteGrupo[1]`.
+ */
+const TRAMITE_SELECT_CSS_SELECTOR = 'select[id^="tramiteGrupo"]';
 const CLAVE_HOSTNAME = "pasarela.clave.gob.es";
 const WAF_SUPPORT_ID_PATTERN = /support id is:\s*<?([\w-]+)>?/i;
 const SOLICITAR_CITA_BUTTON_NAME = "Solicitar Cita";
@@ -337,7 +346,7 @@ async function selectSede(page: Page, sede: string): Promise<void> {
 async function selectTramite(page: Page, tramiteLabel: string): Promise<void> {
     let matchedSelect: Locator | undefined;
     await pollUntil(page, async () => {
-        const selects: readonly Locator[] = await page.getByRole("combobox", { name: TRAMITE_SELECT_PLACEHOLDER }).all();
+        const selects: readonly Locator[] = await page.locator(TRAMITE_SELECT_CSS_SELECTOR).all();
         for (const select of selects) {
             const optionLabels = await select.locator("option").allTextContents();
             if (optionLabels.includes(tramiteLabel)) {

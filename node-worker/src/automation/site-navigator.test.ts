@@ -14,7 +14,7 @@ import {
     runAvailabilityCheck,
 } from "./site-navigator";
 
-const TRAMITE_SELECT_PLACEHOLDER = "Despliega para ver trámites disponibles en esta provincia";
+const TRAMITE_SELECT_CSS_SELECTOR = 'select[id^="tramiteGrupo"]';
 const SEDE_SELECT_SELECTOR = "select#sede";
 const SOLICITAR_CITA_BUTTON_NAME = "Solicitar Cita";
 const CAPTCHA_INPUT_PLACEHOLDER = "Introduce el texto aquí";
@@ -129,6 +129,7 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
                 if (sedeLocator === undefined) throw new Error("test scenario has no select#sede — set sedeOptionLabels");
                 return sedeLocator;
             }
+            if (selector === TRAMITE_SELECT_CSS_SELECTOR) return tramiteGroupLocator;
             const citaMatch = /^#cita_(\d+)$/.exec(selector);
             if (citaMatch !== null) {
                 const citaNumber = citaMatch[1] ?? "";
@@ -148,7 +149,6 @@ function fakePage(scenario: PageScenario = {}): FakePageState {
         }),
         getByRole: vi.fn((role: string, opts?: { name?: string }) => {
             const name = opts?.name ?? "";
-            if (role === "combobox" && name === TRAMITE_SELECT_PLACEHOLDER) return tramiteGroupLocator;
             if (role === "button") {
                 return fakeLocator({
                     isVisible: vi.fn(() =>
@@ -414,20 +414,16 @@ describe("runAvailabilityCheck", () => {
         });
         const tramiteGroupLocator = fakeLocator({ all: vi.fn(() => Promise.resolve([delayedTramiteSelect])) });
         const { page } = fakePage({ clavePanelVisible: true });
-        const originalGetByRoleImpl = (
-            page.getByRole as unknown as {
-                getMockImplementation: () => (role: string, opts?: { name?: string }) => Locator;
+        const originalLocatorImpl = (
+            page.locator as unknown as {
+                getMockImplementation: () => (selector: string) => Locator;
             }
         ).getMockImplementation();
         (
-            page.getByRole as unknown as {
-                mockImplementation: (fn: (role: string, opts?: { name?: string }) => Locator) => void;
+            page.locator as unknown as {
+                mockImplementation: (fn: (selector: string) => Locator) => void;
             }
-        ).mockImplementation((role: string, opts?: { name?: string }) =>
-            role === "combobox" && opts?.name === TRAMITE_SELECT_PLACEHOLDER
-                ? tramiteGroupLocator
-                : originalGetByRoleImpl(role, opts),
-        );
+        ).mockImplementation((selector: string) => (selector === TRAMITE_SELECT_CSS_SELECTOR ? tramiteGroupLocator : originalLocatorImpl(selector)));
 
         await runAvailabilityCheck(page, buildRequest());
 

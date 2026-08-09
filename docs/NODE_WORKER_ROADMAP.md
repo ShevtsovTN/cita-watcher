@@ -1074,6 +1074,50 @@ TIE"`.
       goal, but not this roadmap item: node-worker's own automated flow still hasn't been confirmed,
       live, to get a real trámite/office-scoped check past this point.
 
+## Phase 13 — Found the deeper reason `selectTramite` never found the select at all ⚠️ partially done — see notes
+
+Independent follow-up session, own local stack, own `WatchTask` (`watch_task_id=2` — a different row
+from Phase 12's `id=3`, only the source/docs converged via a real `origin/develop` merge mid-session,
+not shared runtime state). Started from the same symptom Phase 12 documents (`TramiteNotFoundError`
+on a live, real-Redis-driven `recogida de TIE` check) but got there from a still-fresh environment
+(no prior live attempts today), which mattered: it reached a stable, fully-loaded page state that
+Phase 12's escalating-reputation session never got to hold still long enough to inspect.
+
+- [x] **Confirmed live, via a throwaway recon script (same idiom as Phase 9/12, deleted after the
+      run, never committed)**: `selectTramite`'s `page.getByRole("combobox", { name:
+      TRAMITE_SELECT_PLACEHOLDER })` matches **zero** elements on the real page — not intermittently,
+      not as a timing race `pollUntil` (Phase 12) could ever out-wait, but deterministically, on a
+      page confirmed fully settled (a raw `page.locator("select").all()` dump, taken at the exact same
+      moment, found all 3 real `<select>`s with real populated `<option>`s, including the target
+      trámite label byte-for-byte: `id="tramiteGrupo[0]"`, no associated `<label>` element, so its
+      Playwright/Chromium accessible name is empty and `getByRole`'s name-match can never succeed).
+      Phase 12's `pollUntil` wrapping made `selectTramite` retry this same always-empty query for up
+      to ~10s before giving up — a real improvement for the *different* race it targeted (options
+      populating asynchronously), but powerless against a locator that was never going to match
+      regardless of how long it waited.
+- [x] **Also independently reconfirmed Phase 12's own `sede`-truncation finding**, on this session's
+      own `watch_task_id=2`: the real `select#sede` option is `"CNP Benidorm TIE, Callosa
+      D\`Ensarria, 2, Benidorm"`, not the short `"CNP Benidorm TIE"` recorded since Phase 9/10 — fixed
+      the same way Phase 12 fixed `id=3`, a direct DB write via `tinker`, not a code change (same
+      per-`WatchTask` data-quality issue, not something `site-navigator.ts` should special-case).
+- [x] **Fixed, test-first**: `selectTramite` no longer uses `getByRole`/an assumed placeholder-name at
+      all. New `TRAMITE_SELECT_CSS_SELECTOR = 'select[id^="tramiteGrupo"]'`, matching the real,
+      live-confirmed `id` prefix from Phase 9's recon (`tramiteGrupo[0]`/`tramiteGrupo[1]`) — a
+      structural DOM hook instead of an accessible-name guess. `TRAMITE_SELECT_PLACEHOLDER` is gone;
+      the exact-label-match logic inside the loop (still wrapped in Phase 12's `pollUntil`, since the
+      async-population race it fixes is real and orthogonal to this one) is unchanged. Updated
+      `site-navigator.test.ts`'s fake `page.locator`/`page.getByRole` to match (the "bot-defense
+      reload race" test now overrides `page.locator` instead of `page.getByRole`). No net-new test —
+      existing coverage exercises the same code paths through the new locator; 221 tests still pass,
+      `tsc`/`eslint` clean.
+- [ ] **Still open, same shape as Phase 12's own close-out**: this fix is confirmed only against a
+      direct DOM read via the throwaway script, not through a full `runAvailabilityCheck` live run
+      that reaches and passes this exact point — today's environment never got a clean enough window
+      to attempt that without risking the same reputation-degradation spiral Phase 12 already
+      flagged. Whenever a real live attempt resumes (per Phase 12's own guidance — wait for a real
+      recovery window, watch for `ERR_CERT_AUTHORITY_INVALID` recurring), this fix is what should
+      finally let `selectTramite` succeed where it previously always failed outright.
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

@@ -1118,6 +1118,94 @@ Phase 12's escalating-reputation session never got to hold still long enough to 
       recovery window, watch for `ERR_CERT_AUTHORITY_INVALID` recurring), this fix is what should
       finally let `selectTramite` succeed where it previously always failed outright.
 
+## Phase 14 — Resumed `watch_task_id=3` after the Phase 12/13 pause, found a worse TSPD failure mode, and confirmed Phase 12's "IP reputation" theory the hard way ⚠️ partially done — see notes
+
+Same `watch_task_id=3` as Phase 12/13, resumed today (2026-08-10) after sitting `paused` since
+Phase 13. `../CLAUDE.md`'s own narrative had not been updated to mention Phase 12/13 at all before
+this session started — a real roadmap/`CLAUDE.md` sync gap (see `docs/CLAUDE.md`'s own warning
+about this), caught only because Phase 12's manually-booked "CITA CONFIRMADA" success was
+discovered by re-reading this file directly. Confirmed with the developer: that manual booking was
+deliberate, done by hand in a real browser specifically to prove the *site* has no problem and any
+remaining failure is inside this codebase — not evidence that today's automated goal was already
+satisfied.
+
+- [x] **New failure mode, worse than Phase 9/10's plain `__name is not defined` console noise**:
+      today's live attempts repeatedly showed the TSPD bot-defense challenge script failing loudly
+      enough to break the *site's own* page functionality, not just log a cosmetic error — later in
+      the same page load, `cargaTramites is not defined`, `envia is not defined`,
+      `eliminarSeleccionOtrosGrupos is not defined`, and even `jQuery is not defined`/`$ is not
+      defined` all fired as uncaught JS errors, meaning the site's own jQuery-dependent handlers
+      never attached. The practical effect: a `locator.click()` on a real, present element times out
+      at 30s, because nothing on the page is listening for the click — not a Playwright/selector bug,
+      the page itself is broken by its own anti-bot script failing partway through.
+- [x] **One live `net::ERR_CERT_AUTHORITY_INVALID` recurrence (same shape as Phase 12's)** — this
+      time actively checked from the host, not just assumed: `openssl s_client -connect
+      icp.administracionelectronica.gob.es:443` returned a normal, valid, correctly-dated
+      RapidSSL/DigiCert certificate for `*.administracionelectronica.gob.es`. Confirms this isn't a
+      real certificate problem or a MITM on this network — consistent with Phase 12's theory that
+      it's the bot-defense layer itself rejecting the connection before/during the TLS handshake for
+      reputation reasons, surfaced to Playwright as a cert error rather than a clean HTTP block.
+- [x] **Console noise explained (best-effort, not confirmed against source)**: repeated
+      `chrome://rumola/content/rumolaNN.png` requests plus `ERR_BLOCKED_BY_CLIENT`/
+      `ERR_NAME_NOT_RESOLVED` console errors on every live attempt. `automation/session-manager.ts`
+      launches Chromium with no `--load-extension`/persistent-context args (confirmed by reading the
+      file) — nothing in this codebase loads an extension called "rumola". Reads instead like the
+      TSPD challenge script itself probing for known browser-extension resource URLs as an
+      extension-fingerprinting technique, expecting exactly this failure shape from a clean browser.
+      Not a bug on our side; noted here so it isn't mistaken for one later.
+- [x] **Fixed, test-first, on new branch `bugfix/tramite-poll-and-check-failed-diagnostics`
+      (uncommitted as of this writing)**: `messaging/command-handler.ts`'s final "published worker
+      event" log line now includes `reason` for every `check_failed` it publishes, not only the ones
+      that reached it via a caught exception. Before this, a `check_failed` produced by
+      `mapNavigationOutcomeToCheckFailedEvent` (i.e. every *recognized* outcome — WAF rejection,
+      Cl@ve-required, etc., see `outcome-to-event.ts`) logged only `type=check_failed
+      retryable=true`, no reason — indistinguishable in the log from every other failure. Caught live
+      today when several such events gave zero clue why. The same branch also carries Phase
+      12/13-adjacent, still-uncommitted `site-navigator.ts` changes from before this session started:
+      `TramiteNotFoundError` now carries the last-seen `<select>` options it polled, and
+      `SEDE_AJAX_RELOAD_WAIT_MS`/`OPTIONS_POLL_MAX_ATTEMPTS` were widened for the heavier full-page
+      reload `selectSede` triggers. None of this branch's changes have been verified against a live
+      run that reaches the code paths they touch — see the next item for why no further live
+      verification happened today.
+- [x] **Confirmed, not just theorized: Phase 12's "IP reputation degrading from this session's own
+      attempts" is real and escalates to a full network-level block.** 18 live check attempts were
+      dispatched between 17:16 and 18:35 (about 80 minutes), automatically, by
+      `../application`'s `Schedule::command(DispatchDueAvailabilityChecksCommand::class)->
+      everyFiveMinutes()` (`../application/routes/console.php`) — 685 real HTTP requests logged by
+      node-worker's own `remote-response-logger.ts` against `icp.administracionelectronica.gob.es`
+      in that window alone (each check loads the full page's JS/CSS/font/image assets, often twice
+      per check because of the bot-defense's own full-page reload). Shortly after, both
+      `icp.administracionelectronica.gob.es` and `sede.administracionespublicas.gob.es` stopped
+      completing the TCP handshake entirely for this network — DNS resolves fine, but `curl -v`
+      reports "Connection timed out" after 10s with zero bytes exchanged, no TLS alert, no HTTP
+      response at all. Confirmed this is a block of this network's specific public IP, not a general
+      site outage, by testing from a different network (reachable over mobile data, unreachable over
+      the WiFi network `node-worker`'s host runs on). `watch_task_id=3` was paused immediately once
+      this was confirmed, to stop the scheduler's `everyFiveMinutes()` from continuing to hit a
+      blocked IP.
+- [x] **Recovery window observed: roughly one hour.** The block cleared on its own, confirmed by
+      the same cross-network test used to detect it (WiFi network regained normal connectivity to
+      both `icp.administracionelectronica.gob.es` and `sede.administracionespublicas.gob.es`) about
+      an hour after it was first confirmed. Not a precise, repeatable measurement — no automated
+      polling marked the exact recovery instant, only a manual recheck — but a real data point where
+      Phase 12 only had "unknown, could be minutes or days": for this site's anti-bot layer, an
+      ~80-minute/685-request burst from one residential IP earns roughly an hour-long TCP-level
+      block, not something permanent or multi-day.
+- [ ] **Still open — deliberately not attempted**: a WireGuard VPN to a VPS was considered as a
+      workaround and deliberately not pursued. Datacenter/hosting IP ranges are commonly pre-flagged
+      by IP-reputation systems as *more* suspicious than residential ISP ranges (many bots already
+      run from cheap VPS ranges), so this would likely trade a residential-IP block for a harder
+      datacenter-range block rather than fix anything. A real fix (a residential-IP proxy service)
+      was identified but deliberately not built — that's infrastructure for evading a site's
+      anti-abuse controls, out of scope for what this project builds. Even with the ~1h data point
+      above, treat it as one sample, not a guarantee — whoever resumes `watch_task_id=3` next should
+      still watch for the block recurring and strongly consider widening `everyFiveMinutes()` in
+      `../application/routes/console.php` before doing so — 5-minute polling against a site with
+      active, reputation-sensitive anti-bot defenses is almost certainly too aggressive, independent
+      of any code bug. See `../docs/APPLICATION_ROADMAP.md`'s own Phase for this session's other
+      real change: `watch_task_id=3`'s notification channel moved from `mail` (confirmed dead in this
+      dev environment — `MAIL_MAILER=log`) to a real Telegram chat.
+
 ## Explicit non-goals for this roadmap
 
 - The Laravel-side `event-consumer` service/artisan command — tracked separately in the

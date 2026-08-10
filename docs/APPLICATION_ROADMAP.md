@@ -676,6 +676,46 @@ real gap between that migration file and this specific long-running dev environm
       already-migrated environment: check `migrate:status` before assuming an in-place migration edit
       reached every environment that matters.
 
+## Phase 14 — Telegram notification channel went live for a real `WatchTask`, replacing a `mail` channel that was never real
+
+Same live session as `../docs/NODE_WORKER_ROADMAP.md` Phase 14 (2026-08-10), resuming
+`watch_task_id=3`. `TelegramNotificationChannel`/`NotificationChannelResolver`
+(`app/Infrastructure/Notification/...`) already existed and were already fully wired in
+`NotificationServiceProvider` — this phase is about a real credential and a real chat ID reaching
+them for the first time, not new code.
+
+- [x] **Confirmed `watch_task_id=3`'s existing `mail` channel was a no-op in this environment**:
+      `application/.env` has `MAIL_MAILER=log` — `NotifyOnCaptchaInterventionRequiredListener`'s
+      message was always landing in `storage/logs/laravel.log` (via Laravel's `log` mail transport),
+      never in an actual inbox. Not a bug — nobody had configured real SMTP — but worth recording
+      since nothing about the code path itself would have surfaced this.
+- [x] **Chat-ID discovery needed a workaround**: the standard way to find a personal Telegram
+      `chat_id` — message the bot, then call `getUpdates` — returned an empty result every time,
+      even immediately after sending a message, confirmed via direct `curl` calls to the Bot API.
+      Root cause: the bot in use (`@Legatus_Lanibot`, display name "Conner") is a pre-existing,
+      unrelated personal multi-purpose bot the developer already runs (weather, screenshots,
+      birthdays, etc.), not a bot dedicated to cita-watcher — it already has its own independent
+      backend continuously long-polling `getUpdates` on the same token, which consumes every update
+      before this session's own `getUpdates` call could see it (confirmed no webhook was set via
+      `getWebhookInfo`, ruling out the other usual explanation). Worked around by asking the
+      developer for their numeric Telegram user ID via the unrelated public `@userinfobot` instead —
+      doesn't touch `@Legatus_Lanibot`'s update queue at all. Outbound `sendMessage` calls don't have
+      this problem; multiple independent callers can send through the same bot token without
+      conflict, only reading (`getUpdates`/webhooks) is exclusive.
+- [x] **Verified live**: a direct `sendMessage` call to the resolved `chat_id` (`1124944719`) was
+      confirmed received by the developer before wiring it into the real `WatchTask`.
+- [x] **`watch_task_id=3`'s `notification_channel`/`notification_target` switched from
+      `mail`/`zhenyax14@gmail.com` to `telegram`/`1124944719`** via a direct Eloquent update (no new
+      endpoint needed — `WatchTaskController` has no "update notification settings" action yet, out
+      of scope for this session). This is now the real, working notification path for whenever this
+      `WatchTask` next produces a `CaptchaRequiredEvent`.
+- [ ] **Not done — no code changed to make this repeatable.** There's still no way to set
+      `notification_channel: telegram` through the actual `WatchTask` HTTP API's validation in a way
+      that's been exercised (`CreateWatchTaskRequest` accepts the enum value in principle, but this
+      session only ever touched the existing row directly via tinker). Also unaddressed: the
+      `@userinfobot`-based chat-ID discovery flow is a manual, one-off workaround, not something a
+      future `WatchTask` creator is guided through anywhere in the app.
+
 ## Explicit non-goals for this roadmap
 
 - `node-worker` internals — tracked in `../docs/NODE_WORKER_ROADMAP.md`, only consumed here as an

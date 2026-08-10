@@ -163,8 +163,19 @@ export class UnknownProvinceError extends Error {
 }
 
 export class TramiteNotFoundError extends Error {
-    public constructor(tramiteLabel: string) {
-        super(`Trámite "${tramiteLabel}" was not found in either select on this province's page`);
+    /**
+     * `lastSeenSelects` is diagnostic-only (added 2026-08-09 after several identical live failures
+     * gave no visibility into *why*): whatever `selectTramite`'s poll last read from the DOM before
+     * giving up, so the resulting `check_failed` log line (`checkAvailability`'s catch-all logs
+     * `error.message`) carries real evidence instead of just the label that didn't match.
+     */
+    public constructor(tramiteLabel: string, lastSeenSelects: readonly string[] = []) {
+        super(
+            `Trámite "${tramiteLabel}" was not found in either select on this province's page` +
+                (lastSeenSelects.length > 0
+                    ? ` (last poll saw: ${lastSeenSelects.join(" | ")})`
+                    : " (last poll saw zero tramiteGrupo selects)"),
+        );
         this.name = "TramiteNotFoundError";
     }
 }
@@ -198,18 +209,29 @@ export class PhoneRequiredError extends Error {
 }
 
 const SEDE_SELECT_SELECTOR = "select#sede";
-/** Confirmed live sufficient for the `cargaTramites()` AJAX reload to land — see `selectSede`'s docblock. */
-const SEDE_AJAX_RELOAD_WAIT_MS = 2000;
+/**
+ * Was 2000ms (Phase 9), calibrated against the *initial* page-load bot-defense reload only.
+ * Live evidence gathered directly by a human inspecting the real post-`selectSede` DOM (not a
+ * node-worker recon script) showed `selectOption()` on `#sede` triggers a second, *full* page
+ * reload — the whole document (TSPD challenge scripts, Dynatrace agent, all CSS/JS) reloads again,
+ * not just an in-place AJAX swap of `divGrupoTramites` — before the trámite `<select>`s reappear
+ * populated. Bumped to give that heavier reload more room; still a blind fixed wait, since the site
+ * gives no loading indicator to poll on instead.
+ */
+const SEDE_AJAX_RELOAD_WAIT_MS = 5000;
 /**
  * Confirmed live (../../../docs/NODE_WORKER_ROADMAP.md Phase 12): the site's own bot-defense JS
  * challenge triggers a client-side reload of the trámite page a few seconds after the initial
  * navigation — `select#sede` and the trámite `<select>`s have zero real `<option>`s until it
  * resolves. `runAvailabilityCheck` navigates with `waitUntil: "domcontentloaded"`, which fires
- * before that reload, so a single option-list read right after `page.goto()` can race it. 20
- * attempts * 500ms gives ~10s, generously past the ~2s reload observed live, with no loading
- * indicator to wait on instead (the site gives none).
+ * before that reload, so a single option-list read right after `page.goto()` can race it.
+ * Was 20 attempts * 500ms (~10s), generously past the ~2s *initial* reload observed live — but
+ * `selectTramite`'s own poll reuses this same budget immediately after `selectSede`'s heavier
+ * full-page reload (see `SEDE_AJAX_RELOAD_WAIT_MS`), where ~10s repeatedly proved too tight live
+ * (`TramiteNotFoundError` on a page whose reloaded DOM, inspected directly, already had the right
+ * option). Doubled to give that second, heavier reload realistic room.
  */
-const OPTIONS_POLL_MAX_ATTEMPTS = 20;
+const OPTIONS_POLL_MAX_ATTEMPTS = 40;
 const OPTIONS_POLL_INTERVAL_MS = 500;
 /**
  * Confirmed live (../../../docs/NODE_WORKER_ROADMAP.md Phase 13): the trámite `<select>`s have no
@@ -345,10 +367,13 @@ async function selectSede(page: Page, sede: string): Promise<void> {
 
 async function selectTramite(page: Page, tramiteLabel: string): Promise<void> {
     let matchedSelect: Locator | undefined;
+    let lastSeenSelects: string[] = [];
     await pollUntil(page, async () => {
         const selects: readonly Locator[] = await page.locator(TRAMITE_SELECT_CSS_SELECTOR).all();
-        for (const select of selects) {
+        lastSeenSelects = [];
+        for (const [index, select] of selects.entries()) {
             const optionLabels = await select.locator("option").allTextContents();
+            lastSeenSelects.push(`select#${index}=[${optionLabels.join(", ")}]`);
             if (optionLabels.includes(tramiteLabel)) {
                 matchedSelect = select;
                 return true;
@@ -357,7 +382,7 @@ async function selectTramite(page: Page, tramiteLabel: string): Promise<void> {
         return false;
     });
 
-    if (matchedSelect === undefined) throw new TramiteNotFoundError(tramiteLabel);
+    if (matchedSelect === undefined) throw new TramiteNotFoundError(tramiteLabel, lastSeenSelects);
     await matchedSelect.selectOption({ label: tramiteLabel });
 }
 

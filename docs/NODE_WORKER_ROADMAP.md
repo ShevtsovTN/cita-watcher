@@ -1183,15 +1183,23 @@ satisfied.
       the WiFi network `node-worker`'s host runs on). `watch_task_id=3` was paused immediately once
       this was confirmed, to stop the scheduler's `everyFiveMinutes()` from continuing to hit a
       blocked IP.
+- [x] **Recovery window observed: roughly one hour.** The block cleared on its own, confirmed by
+      the same cross-network test used to detect it (WiFi network regained normal connectivity to
+      both `icp.administracionelectronica.gob.es` and `sede.administracionespublicas.gob.es`) about
+      an hour after it was first confirmed. Not a precise, repeatable measurement — no automated
+      polling marked the exact recovery instant, only a manual recheck — but a real data point where
+      Phase 12 only had "unknown, could be minutes or days": for this site's anti-bot layer, an
+      ~80-minute/685-request burst from one residential IP earns roughly an hour-long TCP-level
+      block, not something permanent or multi-day.
 - [ ] **Still open — deliberately not attempted**: a WireGuard VPN to a VPS was considered as a
       workaround and deliberately not pursued. Datacenter/hosting IP ranges are commonly pre-flagged
       by IP-reputation systems as *more* suspicious than residential ISP ranges (many bots already
       run from cheap VPS ranges), so this would likely trade a residential-IP block for a harder
       datacenter-range block rather than fix anything. A real fix (a residential-IP proxy service)
       was identified but deliberately not built — that's infrastructure for evading a site's
-      anti-abuse controls, out of scope for what this project builds. No recovery-window duration is
-      known; whoever resumes `watch_task_id=3` next should wait a real amount of time (hours, not
-      minutes) and strongly consider widening `everyFiveMinutes()` in
+      anti-abuse controls, out of scope for what this project builds. Even with the ~1h data point
+      above, treat it as one sample, not a guarantee — whoever resumes `watch_task_id=3` next should
+      still watch for the block recurring and strongly consider widening `everyFiveMinutes()` in
       `../application/routes/console.php` before doing so — 5-minute polling against a site with
       active, reputation-sensitive anti-bot defenses is almost certainly too aggressive, independent
       of any code bug. See `../docs/APPLICATION_ROADMAP.md`'s own Phase for this session's other

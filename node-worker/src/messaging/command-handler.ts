@@ -184,6 +184,7 @@ export function createWorkerCommandHandler(deps: WorkerCommandHandlerDeps): Work
         commandLogger.info("published worker event", {
             type: event.type,
             retryable: event.type === "check_failed" ? event.retryable : undefined,
+            reason: event.type === "check_failed" ? event.reason : undefined,
         });
     };
 }
